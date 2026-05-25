@@ -116,14 +116,57 @@ Keys are stored in `~/.config/opencode/nim-rotator-keys.json` with file mode `06
 }
 ```
 
+## Themes
+
+The TUI supports multiple color themes that match OpenCode's built-in themes. By default, the rotator **syncs with your `opencode.json` theme setting** — when you change your theme in OpenCode, the rotator picks it up automatically.
+
+### Available Themes
+
+| ID | Name |
+| --- | --- |
+| `opencode` | OpenCode (default) |
+| `catppuccin` | Catppuccin Mocha |
+| `dracula` | Dracula |
+| `gruvbox` | Gruvbox |
+| `kanagawa` | Kanagawa |
+| `nord` | Nord |
+| `one-dark` | One Dark |
+| `rosepine` | Rose Pine |
+| `solarized` | Solarized |
+| `tokyonight` | Tokyonight |
+
+### Setting a Theme
+
+From the TUI main menu, select **Theme** to pick a theme or switch back to syncing with `opencode.json`.
+
+To override via `opencode.json`:
+
+```json
+{
+  "theme": "dracula"
+}
+```
+
+To override independently (saved in the key store):
+
+```json
+{
+  "theme": "kanagawa",
+  "keys": [...]
+}
+```
+
+Set the store `theme` field to `""` or remove it to revert to syncing with `opencode.json`.
+
 ## TUI
 
 The TUI is built with [OpenTUI](https://opentui.com) and provides a menu-driven interface:
 
-- Main menu with Add, Manage, Strategy options
+- Main menu with Add, Manage, Strategy, and Theme options
 - Key selector showing name, masked key, failure count, last used
 - Key actions: toggle, rename, delete
 - Add key flow: enter name, then enter key
+- Theme selector with sync-to-opencode option
 
 ## Development
 

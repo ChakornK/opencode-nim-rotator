@@ -19,6 +19,14 @@ import {
   getMaxFailures,
 } from "../src/storage.js"
 import type { ApiKeyEntry, KeyStore } from "../src/types.js"
+import {
+  getActiveTheme,
+  listThemes,
+  saveThemeOverride,
+  getThemeOverride,
+  getResolvedTheme,
+} from "../src/themes.js"
+import type { RotatorTheme } from "../src/themes.js"
 
 type Screen =
   | "list"
@@ -28,6 +36,7 @@ type Screen =
   | "add-key"
   | "rename"
   | "confirm-delete"
+  | "theme-selector"
 
 const renderer = await createCliRenderer({ exitOnCtrlC: false })
 
@@ -43,6 +52,11 @@ let focusTargetId: string | null = null
 let mainMenuIndex = 0
 let keySelectorIndex = 0
 let keyActionsIndex = 0
+let themeSelectorIndex = 0
+
+function t(): RotatorTheme {
+  return getActiveTheme()
+}
 
 function maskKey(key: string): string {
   if (key.length <= 8) return "****"
@@ -53,9 +67,9 @@ function refreshStore(): void {
   store = loadStore()
 }
 
-function setStatus(msg: string, color = "#888888"): void {
+function setStatus(msg: string, color?: string): void {
   statusMessage = msg
-  statusColor = color
+  statusColor = color ?? t().textMuted
 }
 
 function clearRoot(): void {
@@ -75,6 +89,7 @@ function applyFocus(): void {
 }
 
 function buildKeyOptions(): Array<{ name: string; description: string; value: string }> {
+  const theme = t()
   return store.keys.map((entry) => {
     const status = !entry.enabled ? "OFF" : entry.failureCount >= getMaxFailures() ? "FAIL" : "OK"
     return {
@@ -86,6 +101,7 @@ function buildKeyOptions(): Array<{ name: string; description: string; value: st
 }
 
 function buildMainMenu(): any {
+  const theme = t()
   const options: Array<{ name: string; description: string; value: string }> = []
 
   if (store.keys.length > 0) {
@@ -100,6 +116,11 @@ function buildMainMenu(): any {
     description: "Toggle between round-robin and least-failures",
     value: "toggle-strategy",
   })
+  options.push({
+    name: `Theme: ${theme.name}`,
+    description: "Change the color theme (syncs with opencode.json)",
+    value: "theme",
+  })
   options.push({ name: "Quit", description: "Exit the key manager", value: "quit" })
 
   if (mainMenuIndex >= options.length) mainMenuIndex = Math.max(0, options.length - 1)
@@ -107,15 +128,15 @@ function buildMainMenu(): any {
   const menu = Select({
     id: "main-menu",
     width: 50,
-    height: 10,
+    height: 12,
     options,
     selectedIndex: mainMenuIndex,
-    backgroundColor: "#111111",
-    selectedBackgroundColor: "#1a3a1a",
-    selectedTextColor: "#76FF03",
-    textColor: "#AAAAAA",
-    descriptionColor: "#666666",
-    selectedDescriptionColor: "#88CC88",
+    backgroundColor: theme.backgroundPanel,
+    selectedBackgroundColor: theme.selectedBg,
+    selectedTextColor: theme.selectedText,
+    textColor: theme.text,
+    descriptionColor: theme.description,
+    selectedDescriptionColor: theme.selectedDescription,
   })
 
   menu.on("itemSelected" as any, (index: number, option: { value: string }) => {
@@ -128,6 +149,7 @@ function buildMainMenu(): any {
 }
 
 function buildKeySelector(): any {
+  const theme = t()
   const options = buildKeyOptions()
   if (options.length === 0) {
     currentScreen = "list"
@@ -143,12 +165,12 @@ function buildKeySelector(): any {
     height: 12,
     options,
     selectedIndex: keySelectorIndex,
-    backgroundColor: "#111111",
-    selectedBackgroundColor: "#1a3a1a",
-    selectedTextColor: "#76FF03",
-    textColor: "#AAAAAA",
-    descriptionColor: "#666666",
-    selectedDescriptionColor: "#88CC88",
+    backgroundColor: theme.backgroundPanel,
+    selectedBackgroundColor: theme.selectedBg,
+    selectedTextColor: theme.selectedText,
+    textColor: theme.text,
+    descriptionColor: theme.description,
+    selectedDescriptionColor: theme.selectedDescription,
   })
 
   selector.on("itemSelected" as any, (index: number, option: { value: string }) => {
@@ -164,6 +186,7 @@ function buildKeySelector(): any {
 }
 
 function buildKeyActions(): any {
+  const theme = t()
   if (!selectedKeyId) {
     currentScreen = "key-selector"
     renderApp()
@@ -192,10 +215,11 @@ function buildKeyActions(): any {
     height: 8,
     options,
     selectedIndex: keyActionsIndex,
-    backgroundColor: "#111111",
-    selectedBackgroundColor: "#1a3a1a",
-    selectedTextColor: "#76FF03",
-    textColor: "#AAAAAA",
+    backgroundColor: theme.backgroundPanel,
+    selectedBackgroundColor: theme.selectedBg,
+    selectedTextColor: theme.selectedText,
+    textColor: theme.text,
+    descriptionColor: theme.description,
   })
 
   actions.on("itemSelected" as any, (index: number, option: { value: string }) => {
@@ -206,14 +230,80 @@ function buildKeyActions(): any {
   focusTargetId = "key-actions"
   return Box(
     { flexDirection: "column", gap: 1 },
-    Text({ content: ` Key: ${entry.name} (${maskKey(entry.key)})`, fg: "#76FF03" }),
+    Text({ content: ` Key: ${entry.name} (${maskKey(entry.key)})`, fg: theme.primary }),
     actions,
+  )
+}
+
+function buildThemeSelector(): any {
+  const theme = t()
+  const allThemes = listThemes()
+  const currentOverride = getThemeOverride()
+  const resolvedId = getResolvedTheme().id
+  const activeId = theme.id
+
+  const options = allThemes.map((t) => {
+    let desc = t.name
+    if (t.id === activeId) desc += " *"
+    if (t.id === resolvedId && !currentOverride) desc += " (opencode)"
+    return {
+      name: t.id,
+      description: desc,
+      value: t.id,
+    }
+  })
+
+  options.unshift({
+    name: "sync",
+    description: "Sync with opencode.json (default)",
+    value: "sync",
+  })
+
+  const currentIndex = currentOverride
+    ? options.findIndex((o) => o.value === currentOverride)
+    : 0
+  themeSelectorIndex = currentIndex >= 0 ? currentIndex : 0
+
+  const selector = Select({
+    id: "theme-selector",
+    width: 50,
+    height: 12,
+    options,
+    selectedIndex: themeSelectorIndex,
+    backgroundColor: theme.backgroundPanel,
+    selectedBackgroundColor: theme.selectedBg,
+    selectedTextColor: theme.selectedText,
+    textColor: theme.text,
+    descriptionColor: theme.description,
+    selectedDescriptionColor: theme.selectedDescription,
+  })
+
+  selector.on("itemSelected" as any, (index: number, option: { value: string }) => {
+    themeSelectorIndex = index
+    if (option.value === "sync") {
+      saveThemeOverride("")
+      setStatus(`Theme synced with opencode.json`, theme.success)
+    } else {
+      saveThemeOverride(option.value)
+      setStatus(`Theme set to ${option.value}`, theme.success)
+    }
+    refreshStore()
+    currentScreen = "list"
+    renderApp()
+  })
+
+  focusTargetId = "theme-selector"
+  return Box(
+    { flexDirection: "column", gap: 1 },
+    Text({ content: " Select a theme:", fg: theme.primary }),
+    selector,
   )
 }
 
 function handleKeyAction(action: string): void {
   if (!selectedKeyId) return
   const entry = store.keys.find((k) => k.id === selectedKeyId)
+  const theme = t()
 
   switch (action) {
     case "toggle":
@@ -221,7 +311,7 @@ function handleKeyAction(action: string): void {
         toggleKey(store, selectedKeyId)
         saveStore(store)
         refreshStore()
-        setStatus(`Toggled "${entry.name}" ${entry.enabled ? "OFF" : "ON"}`, "#66FF66")
+        setStatus(`Toggled "${entry.name}" ${entry.enabled ? "OFF" : "ON"}`, theme.success)
       }
       currentScreen = "key-actions"
       renderApp()
@@ -244,6 +334,7 @@ function handleKeyAction(action: string): void {
 }
 
 function handleMenuSelect(value: string): void {
+  const theme = t()
   switch (value) {
     case "add":
       currentScreen = "add-name"
@@ -257,7 +348,7 @@ function handleMenuSelect(value: string): void {
       resetFailures(store)
       saveStore(store)
       refreshStore()
-      setStatus("All failure counts reset", "#66FF66")
+      setStatus("All failure counts reset", theme.success)
       currentScreen = "list"
       renderApp()
       break
@@ -265,8 +356,12 @@ function handleMenuSelect(value: string): void {
       store.rotationStrategy = store.rotationStrategy === "round-robin" ? "least-failures" : "round-robin"
       saveStore(store)
       refreshStore()
-      setStatus(`Strategy: ${store.rotationStrategy}`, "#76FF03")
+      setStatus(`Strategy: ${store.rotationStrategy}`, theme.primary)
       currentScreen = "list"
+      renderApp()
+      break
+    case "theme":
+      currentScreen = "theme-selector"
       renderApp()
       break
     case "quit":
@@ -276,25 +371,26 @@ function handleMenuSelect(value: string): void {
 }
 
 function buildAddNameInput(): any {
+  const theme = t()
   const input = Input({
     id: "add-name-input",
     placeholder: "e.g. work-key, personal, team-alpha",
     width: 40,
-    backgroundColor: "#1a1a1a",
-    focusedBackgroundColor: "#2a2a2a",
-    textColor: "#FFFFFF",
-    cursorColor: "#76FF03",
+    backgroundColor: theme.inputBg,
+    focusedBackgroundColor: theme.inputFocusedBg,
+    textColor: theme.text,
+    cursorColor: theme.cursor,
   })
 
   input.on("enter" as any, (value: string) => {
     pendingKeyName = value.trim()
     if (!pendingKeyName) {
-      setStatus("Name is required", "#FF5555")
+      setStatus("Name is required", theme.error)
       renderApp()
       return
     }
     if (store.keys.some((k) => k.name === pendingKeyName)) {
-      setStatus("A key with this name already exists", "#FF5555")
+      setStatus("A key with this name already exists", theme.error)
       renderApp()
       return
     }
@@ -307,32 +403,33 @@ function buildAddNameInput(): any {
 }
 
 function buildAddKeyInput(): any {
+  const theme = t()
   const input = Input({
     id: "add-key-input",
     placeholder: "nvapi-...",
     width: 55,
-    backgroundColor: "#1a1a1a",
-    focusedBackgroundColor: "#2a2a2a",
-    textColor: "#FFFFFF",
-    cursorColor: "#76FF03",
+    backgroundColor: theme.inputBg,
+    focusedBackgroundColor: theme.inputFocusedBg,
+    textColor: theme.text,
+    cursorColor: theme.cursor,
   })
 
   input.on("enter" as any, (value: string) => {
     const key = value.trim()
     if (!key) {
-      setStatus("API key is required", "#FF5555")
+      setStatus("API key is required", theme.error)
       renderApp()
       return
     }
     if (!key.startsWith("nvapi-")) {
-      setStatus("Key must start with 'nvapi-'", "#FF5555")
+      setStatus("Key must start with 'nvapi-'", theme.error)
       renderApp()
       return
     }
     addKey(store, pendingKeyName, key)
     saveStore(store)
     refreshStore()
-    setStatus(`Added key "${pendingKeyName}"`, "#66FF66")
+    setStatus(`Added key "${pendingKeyName}"`, theme.success)
     pendingKeyName = ""
     currentScreen = "list"
     renderApp()
@@ -343,7 +440,8 @@ function buildAddKeyInput(): any {
 }
 
 function buildRenameInput(): any {
-  if (!renameTargetId) return Text({ content: "Error: no key selected", fg: "#FF5555" })
+  const theme = t()
+  if (!renameTargetId) return Text({ content: "Error: no key selected", fg: theme.error })
   const entry = store.keys.find((k) => k.id === renameTargetId)
   const currentName = entry?.name ?? ""
 
@@ -351,10 +449,10 @@ function buildRenameInput(): any {
     id: "rename-input",
     placeholder: "New friendly name",
     width: 40,
-    backgroundColor: "#1a1a1a",
-    focusedBackgroundColor: "#2a2a2a",
-    textColor: "#FFFFFF",
-    cursorColor: "#76FF03",
+    backgroundColor: theme.inputBg,
+    focusedBackgroundColor: theme.inputFocusedBg,
+    textColor: theme.text,
+    cursorColor: theme.cursor,
   })
 
   input.value = currentName
@@ -362,19 +460,19 @@ function buildRenameInput(): any {
   input.on("enter" as any, (value: string) => {
     const newName = value.trim()
     if (!newName) {
-      setStatus("Name is required", "#FF5555")
+      setStatus("Name is required", theme.error)
       renderApp()
       return
     }
     if (store.keys.some((k) => k.name === newName && k.id !== renameTargetId)) {
-      setStatus("A key with this name already exists", "#FF5555")
+      setStatus("A key with this name already exists", theme.error)
       renderApp()
       return
     }
     renameKey(store, renameTargetId!, newName)
     saveStore(store)
     refreshStore()
-    setStatus(`Renamed to "${newName}"`, "#66FF66")
+    setStatus(`Renamed to "${newName}"`, theme.success)
     renameTargetId = null
     currentScreen = "key-actions"
     renderApp()
@@ -385,6 +483,7 @@ function buildRenameInput(): any {
 }
 
 function buildConfirmDelete(): any {
+  const theme = t()
   const entry = store.keys.find((k) => k.id === deleteTargetId)
   const name = entry?.name ?? "this key"
 
@@ -398,10 +497,10 @@ function buildConfirmDelete(): any {
     width: 40,
     height: 6,
     options,
-    backgroundColor: "#111111",
+    backgroundColor: theme.backgroundPanel,
     selectedBackgroundColor: "#3a1a1a",
-    selectedTextColor: "#FF5555",
-    textColor: "#AAAAAA",
+    selectedTextColor: theme.error,
+    textColor: theme.text,
   })
 
   confirmSelect.on("itemSelected" as any, (_index: number, option: { value: string }) => {
@@ -412,7 +511,7 @@ function buildConfirmDelete(): any {
       saveStore(store)
       refreshStore()
       if (keySelectorIndex >= store.keys.length) keySelectorIndex = Math.max(0, store.keys.length - 1)
-      setStatus(`Deleted "${n}"`, "#FF5555")
+      setStatus(`Deleted "${n}"`, theme.error)
     }
     deleteTargetId = null
     currentScreen = "key-actions"
@@ -425,6 +524,7 @@ function buildConfirmDelete(): any {
 
 function renderApp(): void {
   clearRoot()
+  const theme = t()
 
   const title = Box(
     {
@@ -432,7 +532,7 @@ function renderApp(): void {
       paddingBottom: 1,
       paddingLeft: 1,
     },
-    Text({ content: "NVIDIA NIM API Key Rotator", fg: "#76FF03" }),
+    Text({ content: "NVIDIA NIM API Key Rotator", fg: theme.primary }),
   )
 
   const status = Box(
@@ -443,8 +543,8 @@ function renderApp(): void {
       paddingTop: 1,
       paddingBottom: 1,
     },
-    Text({ content: `Keys: ${store.keys.length}`, fg: "#AAAAAA" }),
-    Text({ content: `Active: ${getActiveKeys(store).length}`, fg: "#66FF66" }),
+    Text({ content: `Keys: ${store.keys.length}`, fg: theme.text }),
+    Text({ content: `Active: ${getActiveKeys(store).length}`, fg: theme.success }),
     Text({ content: statusMessage, fg: statusColor }),
   )
 
@@ -458,7 +558,7 @@ function renderApp(): void {
     case "key-selector":
       content = Box(
         { flexDirection: "column", gap: 1 },
-        Text({ content: " Select a key to manage:", fg: "#76FF03" }),
+        Text({ content: " Select a key to manage:", fg: theme.primary }),
         buildKeySelector(),
       )
       helpText = "[Esc] back"
@@ -470,7 +570,7 @@ function renderApp(): void {
     case "add-name":
       content = Box(
         { flexDirection: "column", gap: 1 },
-        Text({ content: "Enter a friendly name for this key:", fg: "#AAAAAA" }),
+        Text({ content: "Enter a friendly name for this key:", fg: theme.text }),
         buildAddNameInput(),
       )
       helpText = "[Enter] next [Esc] cancel"
@@ -478,8 +578,8 @@ function renderApp(): void {
     case "add-key":
       content = Box(
         { flexDirection: "column", gap: 1 },
-        Text({ content: `Name: ${pendingKeyName}`, fg: "#76FF03" }),
-        Text({ content: "Enter the NVIDIA NIM API key:", fg: "#AAAAAA" }),
+        Text({ content: `Name: ${pendingKeyName}`, fg: theme.primary }),
+        Text({ content: "Enter the NVIDIA NIM API key:", fg: theme.text }),
         buildAddKeyInput(),
       )
       helpText = "[Enter] confirm [Esc] cancel"
@@ -487,7 +587,7 @@ function renderApp(): void {
     case "rename":
       content = Box(
         { flexDirection: "column", gap: 1 },
-        Text({ content: "Enter new name:", fg: "#AAAAAA" }),
+        Text({ content: "Enter new name:", fg: theme.text }),
         buildRenameInput(),
       )
       helpText = "[Enter] confirm [Esc] cancel"
@@ -495,10 +595,14 @@ function renderApp(): void {
     case "confirm-delete":
       content = Box(
         { flexDirection: "column", gap: 1 },
-        Text({ content: "Are you sure you want to delete this key?", fg: "#FF5555" }),
+        Text({ content: "Are you sure you want to delete this key?", fg: theme.error }),
         buildConfirmDelete(),
       )
       helpText = "[Esc] cancel"
+      break
+    case "theme-selector":
+      content = buildThemeSelector()
+      helpText = "[Esc] back"
       break
   }
 
@@ -508,7 +612,7 @@ function renderApp(): void {
       paddingLeft: 1,
       paddingTop: 1,
     },
-    Text({ content: helpText, fg: "#666666" }),
+    Text({ content: helpText, fg: theme.textMuted }),
   )
 
   const screen = Box(
@@ -516,7 +620,7 @@ function renderApp(): void {
       flexDirection: "column",
       width: "100%",
       height: "100%",
-      backgroundColor: "#0a0a0a",
+      backgroundColor: theme.background,
     },
     title,
     status,
@@ -551,6 +655,9 @@ renderer.keyInput.on("keypress", (key: any) => {
       case "confirm-delete":
         deleteTargetId = null
         currentScreen = "key-actions"
+        break
+      case "theme-selector":
+        currentScreen = "list"
         break
     }
     renderApp()
