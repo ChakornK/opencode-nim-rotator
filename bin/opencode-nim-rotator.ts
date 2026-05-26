@@ -21,10 +21,12 @@ import {
 import type { ApiKeyEntry, KeyStore } from "../src/types.js"
 import {
   getActiveTheme,
+  getTheme,
   listThemes,
   saveThemeOverride,
   getThemeOverride,
   getResolvedTheme,
+  setPreviewTheme,
 } from "../src/themes.js"
 import type { RotatorTheme } from "../src/themes.js"
 
@@ -53,6 +55,25 @@ let mainMenuIndex = 0
 let keySelectorIndex = 0
 let keyActionsIndex = 0
 let themeSelectorIndex = 0
+let isRendering = false
+let renderPending = false
+
+function renderApp(): void {
+  if (isRendering) {
+    renderPending = true
+    return
+  }
+  isRendering = true
+  try {
+    doRenderApp()
+  } finally {
+    isRendering = false
+    if (renderPending) {
+      renderPending = false
+      queueMicrotask(renderApp)
+    }
+  }
+}
 
 function t(): RotatorTheme {
   return getActiveTheme()
@@ -241,6 +262,40 @@ function buildKeyActions(): any {
   )
 }
 
+function applyThemeToScreen(_wrapper: any, theme: RotatorTheme): void {
+  renderer.setBackgroundColor(theme.background)
+
+  const selector = renderer.root.findDescendantById("theme-selector")
+  if (selector) {
+    selector.backgroundColor = theme.backgroundPanel
+    selector.focusedBackgroundColor = theme.backgroundElement
+    selector.focusedTextColor = theme.primary
+    selector.selectedBackgroundColor = theme.selectedBg
+    selector.selectedTextColor = theme.selectedText
+    selector.textColor = theme.text
+    selector.descriptionColor = theme.description
+    selector.selectedDescriptionColor = theme.selectedDescription
+  }
+
+  const screenRoot = renderer.root.findDescendantById("screen-root")
+  if (screenRoot) {
+    screenRoot.backgroundColor = theme.background
+  }
+
+  const titleText = renderer.root.findDescendantById("title-text")
+  if (titleText) titleText.fg = theme.primary
+  const keysCount = renderer.root.findDescendantById("keys-count")
+  if (keysCount) keysCount.fg = theme.text
+  const activeCount = renderer.root.findDescendantById("active-count")
+  if (activeCount) activeCount.fg = theme.success
+  const statusTextEl = renderer.root.findDescendantById("status-text")
+  if (statusTextEl) statusTextEl.fg = statusColor
+  const helpTextEl = renderer.root.findDescendantById("help-text")
+  if (helpTextEl) helpTextEl.fg = theme.textMuted
+  const themeLabel = renderer.root.findDescendantById("theme-label")
+  if (themeLabel) themeLabel.fg = theme.primary
+}
+
 function buildThemeSelector(): any {
   const theme = t()
   const allThemes = listThemes()
@@ -261,7 +316,7 @@ function buildThemeSelector(): any {
 
   options.unshift({
     name: "sync",
-    description: "Sync with opencode.json (default)",
+    description: "Sync with opencode theme (default)",
     value: "sync",
   })
 
@@ -286,11 +341,28 @@ function buildThemeSelector(): any {
     selectedDescriptionColor: theme.selectedDescription,
   })
 
+  const wrapper = Box(
+    { flexDirection: "column", gap: 1 },
+    Text({ id: "theme-label", content: " Select a theme:", fg: theme.primary }),
+    selector,
+  )
+
+  selector.on("selectionChanged" as any, (index: number) => {
+    themeSelectorIndex = index
+    const option = options[index]
+    if (!option) return
+    const previewId = option.value === "sync" ? getResolvedTheme().id : option.value
+    setPreviewTheme(previewId)
+    const previewTheme = getTheme(previewId)
+    applyThemeToScreen(wrapper, previewTheme)
+  })
+
   selector.on("itemSelected" as any, (index: number, option: { value: string }) => {
     themeSelectorIndex = index
+    setPreviewTheme(null)
     if (option.value === "sync") {
       saveThemeOverride("")
-      setStatus(`Theme synced with opencode.json`, theme.success)
+      setStatus(`Theme synced with opencode`, theme.success)
     } else {
       saveThemeOverride(option.value)
       setStatus(`Theme set to ${option.value}`, theme.success)
@@ -301,11 +373,7 @@ function buildThemeSelector(): any {
   })
 
   focusTargetId = "theme-selector"
-  return Box(
-    { flexDirection: "column", gap: 1 },
-    Text({ content: " Select a theme:", fg: theme.primary }),
-    selector,
-  )
+  return wrapper
 }
 
 function handleKeyAction(action: string): void {
@@ -369,6 +437,7 @@ function handleMenuSelect(value: string): void {
       renderApp()
       break
     case "theme":
+      setPreviewTheme(null)
       currentScreen = "theme-selector"
       renderApp()
       break
@@ -532,7 +601,7 @@ function buildConfirmDelete(): any {
   return confirmSelect
 }
 
-function renderApp(): void {
+function doRenderApp(): void {
   clearRoot()
   const theme = t()
 
@@ -542,7 +611,7 @@ function renderApp(): void {
       paddingBottom: 1,
       paddingLeft: 1,
     },
-    Text({ content: "NVIDIA NIM API Key Rotator", fg: theme.primary }),
+    Text({ id: "title-text", content: "NVIDIA NIM API Key Rotator", fg: theme.primary }),
   )
 
   const status = Box(
@@ -553,9 +622,9 @@ function renderApp(): void {
       paddingTop: 1,
       paddingBottom: 1,
     },
-    Text({ content: `Keys: ${store.keys.length}`, fg: theme.text }),
-    Text({ content: `Active: ${getActiveKeys(store).length}`, fg: theme.success }),
-    Text({ content: statusMessage, fg: statusColor }),
+    Text({ id: "keys-count", content: `Keys: ${store.keys.length}`, fg: theme.text }),
+    Text({ id: "active-count", content: `Active: ${getActiveKeys(store).length}`, fg: theme.success }),
+    Text({ id: "status-text", content: statusMessage, fg: statusColor }),
   )
 
   let content: any
@@ -622,11 +691,12 @@ function renderApp(): void {
       paddingLeft: 1,
       paddingTop: 1,
     },
-    Text({ content: helpText, fg: theme.textMuted }),
+    Text({ id: "help-text", content: helpText, fg: theme.textMuted }),
   )
 
   const screen = Box(
     {
+      id: "screen-root",
       flexDirection: "column",
       width: "100%",
       height: "100%",
@@ -667,6 +737,7 @@ renderer.keyInput.on("keypress", (key: any) => {
         currentScreen = "key-actions"
         break
       case "theme-selector":
+        setPreviewTheme(null)
         currentScreen = "list"
         break
     }

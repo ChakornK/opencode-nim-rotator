@@ -378,7 +378,20 @@ export function saveThemeOverride(themeId: string): void {
   }
 }
 
+let previewThemeOverride: string | null = null
+
+export function setPreviewTheme(themeId: string | null): void {
+  previewThemeOverride = themeId
+}
+
+export function getPreviewTheme(): string | null {
+  return previewThemeOverride
+}
+
 export function getActiveTheme(): RotatorTheme {
+  if (previewThemeOverride && themes[previewThemeOverride]) {
+    return themes[previewThemeOverride]
+  }
   const override = getThemeOverride()
   if (override && themes[override]) {
     return themes[override]
