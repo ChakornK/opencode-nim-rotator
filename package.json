@@ -13,7 +13,8 @@
     "tui": "bun run bin/opencode-nim-rotator.ts",
     "prepare": "npm run build",
     "postinstall": "node scripts/postinstall.js",
-    "uninstall": "node scripts/uninstall.js"
+    "uninstall": "node scripts/uninstall.js",
+    "format": "prettier -w ."
   },
   "keywords": [
     "opencode",
@@ -36,8 +37,9 @@
     "@opentui/core": "^0.2.15"
   },
   "devDependencies": {
-    "typescript": "6.0.3",
-    "@types/bun": "^1.3.14"
+    "@types/bun": "^1.3.14",
+    "prettier": "^3.8.3",
+    "typescript": "6.0.3"
   },
   "peerDependencies": {
     "bun": ">=1.0.0"

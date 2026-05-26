@@ -122,18 +122,18 @@ The TUI supports multiple color themes that match OpenCode's built-in themes. By
 
 ### Available Themes
 
-| ID | Name |
-| --- | --- |
-| `opencode` | OpenCode (default) |
-| `catppuccin` | Catppuccin Mocha |
-| `dracula` | Dracula |
-| `gruvbox` | Gruvbox |
-| `kanagawa` | Kanagawa |
-| `nord` | Nord |
-| `one-dark` | One Dark |
-| `rosepine` | Rose Pine |
-| `solarized` | Solarized |
-| `tokyonight` | Tokyonight |
+| ID           | Name               |
+| ------------ | ------------------ |
+| `opencode`   | OpenCode (default) |
+| `catppuccin` | Catppuccin Mocha   |
+| `dracula`    | Dracula            |
+| `gruvbox`    | Gruvbox            |
+| `kanagawa`   | Kanagawa           |
+| `nord`       | Nord               |
+| `one-dark`   | One Dark           |
+| `rosepine`   | Rose Pine          |
+| `solarized`  | Solarized          |
+| `tokyonight` | Tokyonight         |
 
 ### Setting a Theme
 

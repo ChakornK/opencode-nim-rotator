@@ -1,91 +1,107 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
-import { join, dirname } from "path"
-import { homedir } from "os"
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
+import { homedir } from "os";
 
-const CONFIG_DIR = join(homedir(), ".config", "opencode")
-const STATE_DIR = join(homedir(), ".local", "state", "opencode")
+const CONFIG_DIR = join(homedir(), ".config", "opencode");
+const STATE_DIR = join(homedir(), ".local", "state", "opencode");
 
-const KV_JSONPath = join(STATE_DIR, "kv.json")
-const KV_JSONCPath = join(STATE_DIR, "kv.jsonc")
-const TUI_JSONPath = join(CONFIG_DIR, "tui.json")
-const TUI_JSONCPath = join(CONFIG_DIR, "tui.jsonc")
+const KV_JSONPath = join(STATE_DIR, "kv.json");
+const KV_JSONCPath = join(STATE_DIR, "kv.jsonc");
+const TUI_JSONPath = join(CONFIG_DIR, "tui.json");
+const TUI_JSONCPath = join(CONFIG_DIR, "tui.jsonc");
 
 function stripJsonComments(raw: string): string {
   // strip single-line comments
-  let result = raw.replace(/\/\/.*$/gm, "")
+  let result = raw.replace(/\/\/.*$/gm, "");
   // strip multi-line comments
-  result = result.replace(/\/\*[\s\S]*?\*\//g, "")
-  return result
+  result = result.replace(/\/\*[\s\S]*?\*\//g, "");
+  return result;
 }
 
 function readJsonOrJsonc(path: string): any | null {
   try {
-    if (!existsSync(path)) return null
-    let raw = readFileSync(path, "utf-8")
+    if (!existsSync(path)) return null;
+    let raw = readFileSync(path, "utf-8");
     if (path.endsWith(".jsonc")) {
-      raw = stripJsonComments(raw)
+      raw = stripJsonComments(raw);
     }
-    return JSON.parse(raw)
+    return JSON.parse(raw);
   } catch {
-    return null
+    return null;
   }
 }
 
 function getThemeFromKV(): string | null {
-  const fromJson = readJsonOrJsonc(KV_JSONPath)
-  if (fromJson && typeof fromJson.theme === "string" && fromJson.theme.length > 0) {
-    return fromJson.theme
+  const fromJson = readJsonOrJsonc(KV_JSONPath);
+  if (
+    fromJson &&
+    typeof fromJson.theme === "string" &&
+    fromJson.theme.length > 0
+  ) {
+    return fromJson.theme;
   }
 
-  const fromJsonc = readJsonOrJsonc(KV_JSONCPath)
-  if (fromJsonc && typeof fromJsonc.theme === "string" && fromJsonc.theme.length > 0) {
-    return fromJsonc.theme
+  const fromJsonc = readJsonOrJsonc(KV_JSONCPath);
+  if (
+    fromJsonc &&
+    typeof fromJsonc.theme === "string" &&
+    fromJsonc.theme.length > 0
+  ) {
+    return fromJsonc.theme;
   }
 
-  return null
+  return null;
 }
 
 function getThemeFromTUI(): string | null {
-  const fromJson = readJsonOrJsonc(TUI_JSONPath)
-  if (fromJson && typeof fromJson.theme === "string" && fromJson.theme.length > 0) {
-    return fromJson.theme
+  const fromJson = readJsonOrJsonc(TUI_JSONPath);
+  if (
+    fromJson &&
+    typeof fromJson.theme === "string" &&
+    fromJson.theme.length > 0
+  ) {
+    return fromJson.theme;
   }
 
-  const fromJsonc = readJsonOrJsonc(TUI_JSONCPath)
-  if (fromJsonc && typeof fromJsonc.theme === "string" && fromJsonc.theme.length > 0) {
-    return fromJsonc.theme
+  const fromJsonc = readJsonOrJsonc(TUI_JSONCPath);
+  if (
+    fromJsonc &&
+    typeof fromJsonc.theme === "string" &&
+    fromJsonc.theme.length > 0
+  ) {
+    return fromJsonc.theme;
   }
 
-  return null
+  return null;
 }
 
 export interface RotatorTheme {
-  id: string
-  name: string
-  background: string
-  backgroundPanel: string
-  backgroundElement: string
-  text: string
-  textMuted: string
-  primary: string
-  primaryMuted: string
-  accent: string
-  error: string
-  success: string
-  warning: string
-  selectedBg: string
-  selectedText: string
-  border: string
-  borderActive: string
-  inputBg: string
-  inputFocusedBg: string
-  cursor: string
-  description: string
-  selectedDescription: string
+  id: string;
+  name: string;
+  background: string;
+  backgroundPanel: string;
+  backgroundElement: string;
+  text: string;
+  textMuted: string;
+  primary: string;
+  primaryMuted: string;
+  accent: string;
+  error: string;
+  success: string;
+  warning: string;
+  selectedBg: string;
+  selectedText: string;
+  border: string;
+  borderActive: string;
+  inputBg: string;
+  inputFocusedBg: string;
+  cursor: string;
+  description: string;
+  selectedDescription: string;
 }
 
 const themes: Record<string, RotatorTheme> = {
-  "opencode": {
+  opencode: {
     id: "opencode",
     name: "OpenCode",
     background: "#0a0a0a",
@@ -109,7 +125,7 @@ const themes: Record<string, RotatorTheme> = {
     description: "#666666",
     selectedDescription: "#88CC88",
   },
-  "dracula": {
+  dracula: {
     id: "dracula",
     name: "Dracula",
     background: "#1a1b26",
@@ -133,7 +149,7 @@ const themes: Record<string, RotatorTheme> = {
     description: "#6272a4",
     selectedDescription: "#9580ff",
   },
-  "catppuccin": {
+  catppuccin: {
     id: "catppuccin",
     name: "Catppuccin Mocha",
     background: "#1e1e2e",
@@ -157,7 +173,7 @@ const themes: Record<string, RotatorTheme> = {
     description: "#6c7086",
     selectedDescription: "#a6adc8",
   },
-  "tokyonight": {
+  tokyonight: {
     id: "tokyonight",
     name: "Tokyonight",
     background: "#1a1b26",
@@ -181,7 +197,7 @@ const themes: Record<string, RotatorTheme> = {
     description: "#565f89",
     selectedDescription: "#7982a9",
   },
-  "gruvbox": {
+  gruvbox: {
     id: "gruvbox",
     name: "Gruvbox",
     background: "#1d2021",
@@ -205,7 +221,7 @@ const themes: Record<string, RotatorTheme> = {
     description: "#7c6f64",
     selectedDescription: "#bdae93",
   },
-  "nord": {
+  nord: {
     id: "nord",
     name: "Nord",
     background: "#2e3440",
@@ -253,7 +269,7 @@ const themes: Record<string, RotatorTheme> = {
     description: "#5c6370",
     selectedDescription: "#7f848e",
   },
-  "solarized": {
+  solarized: {
     id: "solarized",
     name: "Solarized",
     background: "#002b36",
@@ -277,7 +293,7 @@ const themes: Record<string, RotatorTheme> = {
     description: "#586e75",
     selectedDescription: "#657b83",
   },
-  "kanagawa": {
+  kanagawa: {
     id: "kanagawa",
     name: "Kanagawa",
     background: "#1f1f28",
@@ -301,7 +317,7 @@ const themes: Record<string, RotatorTheme> = {
     description: "#727169",
     selectedDescription: "#957fb8",
   },
-  "rosepine": {
+  rosepine: {
     id: "rosepine",
     name: "Rose Pine",
     background: "#191724",
@@ -325,76 +341,78 @@ const themes: Record<string, RotatorTheme> = {
     description: "#6e6a86",
     selectedDescription: "#908caa",
   },
-}
+};
 
 export function getTheme(id: string): RotatorTheme {
-  return themes[id] ?? themes["opencode"]!
+  return themes[id] ?? themes["opencode"]!;
 }
 
 export function listThemes(): RotatorTheme[] {
-  return Object.values(themes)
+  return Object.values(themes);
 }
 
 export function getThemeIdFromOpenCodeConfig(): string | null {
   // opencode stores the theme in kv.json or kv.jsonc (state dir), or tui.json / tui.jsonc (config dir)
-  return getThemeFromKV() ?? getThemeFromTUI() ?? null
+  return getThemeFromKV() ?? getThemeFromTUI() ?? null;
 }
 
 export function getResolvedTheme(): RotatorTheme {
-  const opencodeThemeId = getThemeIdFromOpenCodeConfig()
+  const opencodeThemeId = getThemeIdFromOpenCodeConfig();
   if (opencodeThemeId && themes[opencodeThemeId]) {
-    return themes[opencodeThemeId]
+    return themes[opencodeThemeId];
   }
-  return themes["opencode"]!
+  return themes["opencode"]!;
 }
 
 export function getThemeOverride(): string | null {
   try {
-    const storePath = join(CONFIG_DIR, "nim-rotator-keys.json")
-    if (!existsSync(storePath)) return null
-    const raw = readFileSync(storePath, "utf-8")
-    const data = JSON.parse(raw)
-    return data.theme ?? null
+    const storePath = join(CONFIG_DIR, "nim-rotator-keys.json");
+    if (!existsSync(storePath)) return null;
+    const raw = readFileSync(storePath, "utf-8");
+    const data = JSON.parse(raw);
+    return data.theme ?? null;
   } catch {}
-  return null
+  return null;
 }
 
 export function saveThemeOverride(themeId: string): void {
   try {
-    const storePath = join(CONFIG_DIR, "nim-rotator-keys.json")
-    let data: Record<string, unknown> = {}
+    const storePath = join(CONFIG_DIR, "nim-rotator-keys.json");
+    let data: Record<string, unknown> = {};
     if (existsSync(storePath)) {
-      const raw = readFileSync(storePath, "utf-8")
-      data = JSON.parse(raw)
+      const raw = readFileSync(storePath, "utf-8");
+      data = JSON.parse(raw);
     }
-    data.theme = themeId
-    const dir = dirname(storePath)
+    data.theme = themeId;
+    const dir = dirname(storePath);
     if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true })
+      mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(storePath, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 })
+    writeFileSync(storePath, JSON.stringify(data, null, 2) + "\n", {
+      mode: 0o600,
+    });
   } catch (err) {
-    console.warn("[nim-rotator] Could not save theme preference:", err)
+    console.warn("[nim-rotator] Could not save theme preference:", err);
   }
 }
 
-let previewThemeOverride: string | null = null
+let previewThemeOverride: string | null = null;
 
 export function setPreviewTheme(themeId: string | null): void {
-  previewThemeOverride = themeId
+  previewThemeOverride = themeId;
 }
 
 export function getPreviewTheme(): string | null {
-  return previewThemeOverride
+  return previewThemeOverride;
 }
 
 export function getActiveTheme(): RotatorTheme {
   if (previewThemeOverride && themes[previewThemeOverride]) {
-    return themes[previewThemeOverride]
+    return themes[previewThemeOverride];
   }
-  const override = getThemeOverride()
+  const override = getThemeOverride();
   if (override && themes[override]) {
-    return themes[override]
+    return themes[override];
   }
-  return getResolvedTheme()
+  return getResolvedTheme();
 }
