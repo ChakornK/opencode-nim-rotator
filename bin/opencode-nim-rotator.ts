@@ -148,12 +148,12 @@ function buildMainMenu(): any {
 
   const menu = Select({
     id: "main-menu",
-    width: 50,
+    width: 56,
     height: 12,
     options,
     selectedIndex: mainMenuIndex,
-    backgroundColor: theme.backgroundPanel,
-    focusedBackgroundColor: theme.backgroundElement,
+    backgroundColor: theme.background,
+    focusedBackgroundColor: theme.backgroundPanel,
     focusedTextColor: theme.primary,
     selectedBackgroundColor: theme.selectedBg,
     selectedTextColor: theme.selectedText,
@@ -184,12 +184,12 @@ function buildKeySelector(): any {
 
   const selector = Select({
     id: "key-selector",
-    width: 60,
+    width: 64,
     height: 12,
     options,
     selectedIndex: keySelectorIndex,
-    backgroundColor: theme.backgroundPanel,
-    focusedBackgroundColor: theme.backgroundElement,
+    backgroundColor: theme.background,
+    focusedBackgroundColor: theme.backgroundPanel,
     focusedTextColor: theme.primary,
     selectedBackgroundColor: theme.selectedBg,
     selectedTextColor: theme.selectedText,
@@ -240,8 +240,8 @@ function buildKeyActions(): any {
     height: 8,
     options,
     selectedIndex: keyActionsIndex,
-    backgroundColor: theme.backgroundPanel,
-    focusedBackgroundColor: theme.backgroundElement,
+    backgroundColor: theme.background,
+    focusedBackgroundColor: theme.backgroundPanel,
     focusedTextColor: theme.primary,
     selectedBackgroundColor: theme.selectedBg,
     selectedTextColor: theme.selectedText,
@@ -267,8 +267,8 @@ function applyThemeToScreen(_wrapper: any, theme: RotatorTheme): void {
 
   const selector = renderer.root.findDescendantById("theme-selector")
   if (selector) {
-    selector.backgroundColor = theme.backgroundPanel
-    selector.focusedBackgroundColor = theme.backgroundElement
+    selector.backgroundColor = theme.background
+    selector.focusedBackgroundColor = theme.backgroundPanel
     selector.focusedTextColor = theme.primary
     selector.selectedBackgroundColor = theme.selectedBg
     selector.selectedTextColor = theme.selectedText
@@ -280,6 +280,12 @@ function applyThemeToScreen(_wrapper: any, theme: RotatorTheme): void {
   const screenRoot = renderer.root.findDescendantById("screen-root")
   if (screenRoot) {
     screenRoot.backgroundColor = theme.background
+  }
+
+  const panel = renderer.root.findDescendantById("panel")
+  if (panel) {
+    panel.backgroundColor = theme.background
+    panel.borderColor = theme.border
   }
 
   const titleText = renderer.root.findDescendantById("title-text")
@@ -327,12 +333,12 @@ function buildThemeSelector(): any {
 
   const selector = Select({
     id: "theme-selector",
-    width: 50,
+    width: 56,
     height: 12,
     options,
     selectedIndex: themeSelectorIndex,
-    backgroundColor: theme.backgroundPanel,
-    focusedBackgroundColor: theme.backgroundElement,
+    backgroundColor: theme.background,
+    focusedBackgroundColor: theme.backgroundPanel,
     focusedTextColor: theme.primary,
     selectedBackgroundColor: theme.selectedBg,
     selectedTextColor: theme.selectedText,
@@ -574,8 +580,8 @@ function buildConfirmDelete(): any {
     width: 40,
     height: 6,
     options,
-    backgroundColor: theme.backgroundPanel,
-    focusedBackgroundColor: theme.backgroundElement,
+    backgroundColor: theme.background,
+    focusedBackgroundColor: theme.backgroundPanel,
     focusedTextColor: theme.error,
     selectedBackgroundColor: "#3a1a1a",
     selectedTextColor: theme.error,
@@ -608,21 +614,16 @@ function doRenderApp(): void {
   const title = Box(
     {
       flexDirection: "row",
-      paddingBottom: 1,
-      paddingLeft: 1,
     },
-    Text({ id: "title-text", content: "NVIDIA NIM API Key Rotator", fg: theme.primary }),
+    Text({ id: "title-text", content: "NVIDIA NIM Key Rotator", fg: theme.primary }),
   )
 
   const status = Box(
     {
       flexDirection: "row",
       gap: 2,
-      paddingLeft: 1,
-      paddingTop: 1,
-      paddingBottom: 1,
     },
-    Text({ id: "keys-count", content: `Keys: ${store.keys.length}`, fg: theme.text }),
+    Text({ id: "keys-count", content: `Keys: ${store.keys.length}`, fg: theme.textMuted }),
     Text({ id: "active-count", content: `Active: ${getActiveKeys(store).length}`, fg: theme.success }),
     Text({ id: "status-text", content: statusMessage, fg: statusColor }),
   )
@@ -652,7 +653,7 @@ function doRenderApp(): void {
         Text({ content: "Enter a friendly name for this key:", fg: theme.text }),
         buildAddNameInput(),
       )
-      helpText = "[Enter] next [Esc] cancel"
+      helpText = "[Enter] next  [Esc] cancel"
       break
     case "add-key":
       content = Box(
@@ -661,7 +662,7 @@ function doRenderApp(): void {
         Text({ content: "Enter the NVIDIA NIM API key:", fg: theme.text }),
         buildAddKeyInput(),
       )
-      helpText = "[Enter] confirm [Esc] cancel"
+      helpText = "[Enter] confirm  [Esc] cancel"
       break
     case "rename":
       content = Box(
@@ -669,7 +670,7 @@ function doRenderApp(): void {
         Text({ content: "Enter new name:", fg: theme.text }),
         buildRenameInput(),
       )
-      helpText = "[Enter] confirm [Esc] cancel"
+      helpText = "[Enter] confirm  [Esc] cancel"
       break
     case "confirm-delete":
       content = Box(
@@ -681,31 +682,45 @@ function doRenderApp(): void {
       break
     case "theme-selector":
       content = buildThemeSelector()
-      helpText = "[Esc] back"
+      helpText = "[Esc] back  [Enter] apply"
       break
   }
 
   const help = Box(
     {
       flexDirection: "row",
-      paddingLeft: 1,
-      paddingTop: 1,
     },
     Text({ id: "help-text", content: helpText, fg: theme.textMuted }),
+  )
+
+  const panel = Box(
+    {
+      id: "panel",
+      flexDirection: "column",
+      paddingX: 2,
+      paddingY: 1,
+      border: true,
+      borderStyle: "rounded",
+      borderColor: theme.border,
+      gap: 1
+    },
+    title,
+    status,
+    content,
+    help,
   )
 
   const screen = Box(
     {
       id: "screen-root",
       flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
       width: "100%",
       height: "100%",
       backgroundColor: theme.background,
     },
-    title,
-    status,
-    Box({ paddingLeft: 1, paddingTop: 1 }, content),
-    help,
+    panel,
   )
 
   renderer.root.add(screen)
