@@ -75,6 +75,82 @@ function getThemeFromTUI(): string | null {
   return null;
 }
 
+export interface SelectThemeColors {
+  backgroundColor: string;
+  focusedBackgroundColor: string;
+  focusedTextColor: string;
+  selectedBackgroundColor: string;
+  selectedTextColor: string;
+  textColor: string;
+  descriptionColor: string;
+  selectedDescriptionColor: string;
+}
+
+export interface InputThemeColors {
+  backgroundColor: string;
+  focusedBackgroundColor: string;
+  textColor: string;
+  cursorColor: string;
+}
+
+export function selectColors(theme: RotatorTheme): SelectThemeColors {
+  return {
+    backgroundColor: theme.background,
+    focusedBackgroundColor: theme.backgroundPanel,
+    focusedTextColor: theme.primary,
+    selectedBackgroundColor: theme.selectedBg,
+    selectedTextColor: theme.selectedText,
+    textColor: theme.text,
+    descriptionColor: theme.description,
+    selectedDescriptionColor: theme.selectedDescription,
+  };
+}
+
+export function inputColors(theme: RotatorTheme): InputThemeColors {
+  return {
+    backgroundColor: theme.inputBg,
+    focusedBackgroundColor: theme.inputFocusedBg,
+    textColor: theme.text,
+    cursorColor: theme.cursor,
+  };
+}
+
+export function dangerSelectColors(theme: RotatorTheme): SelectThemeColors {
+  return {
+    backgroundColor: theme.background,
+    focusedBackgroundColor: theme.backgroundPanel,
+    focusedTextColor: theme.error,
+    selectedBackgroundColor: theme.errorBg,
+    selectedTextColor: theme.error,
+    textColor: theme.text,
+    descriptionColor: theme.description,
+    selectedDescriptionColor: theme.selectedDescription,
+  };
+}
+
+export function applySelectColors(
+  target: {
+    backgroundColor: string;
+    focusedBackgroundColor: string;
+    focusedTextColor: string;
+    selectedBackgroundColor: string;
+    selectedTextColor: string;
+    textColor: string;
+    descriptionColor: string;
+    selectedDescriptionColor: string;
+  },
+  colors: SelectThemeColors,
+): void {
+  target.backgroundColor = colors.backgroundColor;
+  target.focusedBackgroundColor = colors.focusedBackgroundColor;
+  target.focusedTextColor = colors.focusedTextColor;
+  target.selectedBackgroundColor = colors.selectedBackgroundColor;
+  target.selectedTextColor = colors.selectedTextColor;
+  target.textColor = colors.textColor;
+  target.descriptionColor = colors.descriptionColor;
+  target.selectedDescriptionColor = colors.selectedDescriptionColor;
+}
+
 export interface RotatorTheme {
   id: string;
   name: string;
@@ -87,6 +163,7 @@ export interface RotatorTheme {
   primaryMuted: string;
   accent: string;
   error: string;
+  errorBg: string;
   success: string;
   warning: string;
   selectedBg: string;
@@ -113,6 +190,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#88CC88",
     accent: "#76FF03",
     error: "#FF5555",
+    errorBg: "#3a1a1a",
     success: "#66FF66",
     warning: "#D7A657",
     selectedBg: "#1a3a1a",
@@ -137,6 +215,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#9580ff",
     accent: "#ff79c6",
     error: "#ff5555",
+    errorBg: "#2d1525",
     success: "#50fa7b",
     warning: "#f1fa8c",
     selectedBg: "#2d2f4e",
@@ -161,6 +240,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#a6adc8",
     accent: "#f38ba8",
     error: "#f38ba8",
+    errorBg: "#2a1a2e",
     success: "#a6e3a1",
     warning: "#f9e2af",
     selectedBg: "#2a2a3c",
@@ -185,6 +265,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#7982a9",
     accent: "#bb9af7",
     error: "#f7768e",
+    errorBg: "#1f1530",
     success: "#9ece6a",
     warning: "#e0af68",
     selectedBg: "#1f2335",
@@ -209,6 +290,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#bdae93",
     accent: "#fabd2f",
     error: "#fb4934",
+    errorBg: "#3c1a1a",
     success: "#b8bb26",
     warning: "#fabd2f",
     selectedBg: "#3c3836",
@@ -233,6 +315,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#81a1c1",
     accent: "#b48ead",
     error: "#bf616a",
+    errorBg: "#3b2530",
     success: "#a3be8c",
     warning: "#ebcb8b",
     selectedBg: "#3b4252",
@@ -257,6 +340,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#7f848e",
     accent: "#c678dd",
     error: "#e06c75",
+    errorBg: "#2c1a1e",
     success: "#98c379",
     warning: "#e5c07b",
     selectedBg: "#2c313a",
@@ -281,6 +365,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#657b83",
     accent: "#d33682",
     error: "#dc322f",
+    errorBg: "#072630",
     success: "#859900",
     warning: "#b58900",
     selectedBg: "#073642",
@@ -305,6 +390,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#957fb8",
     accent: "#d27e99",
     error: "#e82424",
+    errorBg: "#2a1f28",
     success: "#98bb6c",
     warning: "#d7a657",
     selectedBg: "#223349",
@@ -329,6 +415,7 @@ const themes: Record<string, RotatorTheme> = {
     primaryMuted: "#908caa",
     accent: "#eb6f92",
     error: "#eb6f92",
+    errorBg: "#26172a",
     success: "#9ccfd8",
     warning: "#f6c177",
     selectedBg: "#26233a",
