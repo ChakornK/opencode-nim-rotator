@@ -180,9 +180,11 @@ function buildMainMenu(): ScreenContent {
     description: "Toggle between round-robin and least-failures",
     value: "toggle-strategy",
   });
+  const themeOverride = getThemeOverride();
+  const syncedLabel = !themeOverride ? " (synced with opencode)" : "";
   options.push({
-    name: `Theme: ${theme.name}`,
-    description: "Change the color theme (syncs with opencode)",
+    name: `Theme: ${theme.name}${syncedLabel}`,
+    description: "Change the color theme",
     value: "theme",
   });
   options.push({
