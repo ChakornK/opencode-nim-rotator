@@ -17,6 +17,7 @@ function getDefaultStore(): KeyStore {
     currentIndex: 0,
     rotationStrategy: "round-robin",
     updatedAt: Date.now(),
+    lastUsedKeyId: undefined,
   };
 }
 
