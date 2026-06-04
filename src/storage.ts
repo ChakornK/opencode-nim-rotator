@@ -131,6 +131,7 @@ export function getNextKey(
     const best = sorted[0];
     const idx = store.keys.indexOf(best);
     store.currentIndex = idx;
+    store.lastUsedKeyId = best.id;
     best.lastUsedAt = Date.now();
     return { key: best, index: idx };
   }
@@ -140,6 +141,7 @@ export function getNextKey(
   const selected = active[idx];
   const realIdx = store.keys.indexOf(selected);
   store.currentIndex = (idx + 1) % active.length;
+  store.lastUsedKeyId = selected.id;
   selected.lastUsedAt = Date.now();
   return { key: selected, index: realIdx };
 }

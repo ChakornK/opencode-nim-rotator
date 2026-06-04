@@ -112,9 +112,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
     },
     event: async ({ event }) => {
       if (event.type === "session.error" && isAuthError((event as any).error)) {
-        const active = getActiveKeys(store, config);
-        if (active.length > 0 && store.currentIndex < store.keys.length) {
-          recordFailure(store, store.keys[store.currentIndex].id);
+        if (store.lastUsedKeyId) {
+          recordFailure(store, store.lastUsedKeyId);
           saveStore(store, config);
         }
       }

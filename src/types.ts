@@ -13,6 +13,7 @@ export interface KeyStore {
   currentIndex: number;
   rotationStrategy: "round-robin" | "least-failures";
   updatedAt: number;
+  lastUsedKeyId?: string;
 }
 
 export type KeyStoreConfig = {

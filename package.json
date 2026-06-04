@@ -1,6 +1,6 @@
 {
   "name": "opencode-nim-rotator",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "An OpenCode plugin for managing and rotating multiple NVIDIA NIM API keys",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,13 +24,20 @@
     "api-key",
     "rotation"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChakornK/opencode-api-key-rotator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ChakornK/opencode-api-key-rotator/issues"
+  },
+  "homepage": "https://github.com/ChakornK/opencode-api-key-rotator#readme",
   "author": "ChakornK",
   "license": "MIT",
   "files": [
     "dist",
     "bin",
-    "scripts",
-    "src"
+    "scripts"
   ],
   "dependencies": {
     "@opencode-ai/plugin": "^1.15.10",
