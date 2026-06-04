@@ -19,16 +19,23 @@ function isValidStrategy(
   return typeof val === "string" && VALID_STRATEGIES.includes(val as any);
 }
 
-function isAuthError(obj: unknown): boolean {
+function isRecoverableError(obj: unknown): boolean {
   if (typeof obj === "object" && obj !== null) {
-    const code = (obj as any).code;
-    const status = (obj as any).status;
-    if (code === 401 || code === 403 || status === 401 || status === 403)
-      return true;
+    const name = (obj as any).name;
+    if (name === "ProviderAuthError") return true;
+    if (name === "APIError") {
+      const statusCode = (obj as any).data?.statusCode;
+      if (statusCode === 401 || statusCode === 403 || statusCode === 429)
+        return true;
+    }
   }
   const msg = String(obj).toLowerCase();
   return (
-    msg.includes("401") || msg.includes("403") || msg.includes("unauthorized")
+    msg.includes("401") ||
+    msg.includes("403") ||
+    msg.includes("429") ||
+    msg.includes("unauthorized") ||
+    msg.includes("rate limit")
   );
 }
 
@@ -111,10 +118,13 @@ export const NvidiaNimKeyRotator: Plugin = async (
       }
     },
     event: async ({ event }) => {
-      if (event.type === "session.error" && isAuthError((event as any).error)) {
-        if (store.lastUsedKeyId) {
-          recordFailure(store, store.lastUsedKeyId);
-          saveStore(store, config);
+      if (event.type === "session.error") {
+        const error = (event as any).error ?? (event as any).properties?.error;
+        if (isRecoverableError(error)) {
+          if (store.lastUsedKeyId) {
+            recordFailure(store, store.lastUsedKeyId);
+            saveStore(store, config);
+          }
         }
       }
     },
