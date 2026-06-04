@@ -23,7 +23,7 @@ The postinstall script automatically adds the plugin to your `~/.config/opencode
 Run the TUI manager:
 
 ```bash
-bun opencode-nim-rotator
+opencode-nim-rotator
 ```
 
 Or manually — add at least one key via OpenCode's auth system:
@@ -37,7 +37,7 @@ Select "Enter NVIDIA NIM API Key" and paste your key.
 ### 2. Add more keys via the TUI
 
 ```bash
-bun opencode-nim-rotator
+opencode-nim-rotator
 ```
 
 The TUI lets you:
@@ -112,7 +112,8 @@ Keys are stored in `~/.config/opencode/nim-rotator-keys.json` with file mode `06
   ],
   "currentIndex": 0,
   "rotationStrategy": "round-robin",
-  "updatedAt": 1700000000000
+  "updatedAt": 1700000000000,
+  "lastUsedKeyId": "uuid"
 }
 ```
 
