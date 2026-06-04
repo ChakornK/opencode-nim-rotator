@@ -1,4 +1,4 @@
-# opencode-nvidia-nim-key-rotator
+# opencode-nim-rotator
 
 An [OpenCode](https://opencode.ai) plugin for managing and rotating multiple NVIDIA NIM API keys.
 
@@ -11,7 +11,7 @@ The plugin uses OpenCode's `auth` hook with a custom `fetch` function to interce
 ## Install
 
 ```bash
-npm install -g opencode-nvidia-nim-key-rotator
+npm install -g opencode-nim-rotator
 ```
 
 The postinstall script automatically adds the plugin to your `~/.config/opencode/opencode.json`.
@@ -68,7 +68,7 @@ After adding keys, restart opencode. The plugin's `auth` loader will fire on sta
 {
   "plugin": [
     [
-      "opencode-nvidia-nim-key-rotator",
+      "opencode-nim-rotator",
       {
         "rotationStrategy": "round-robin",
         "storePath": "/custom/path/to/keys.json"
@@ -186,12 +186,12 @@ bun run build
 To remove the plugin and clean up all associated data:
 
 ```bash
-npm uninstall -g opencode-nvidia-nim-key-rotator
+npm uninstall -g opencode-nim-rotator
 ```
 
 The uninstaller will automatically:
 
-1. Remove `opencode-nvidia-nim-key-rotator` from your `~/.config/opencode/opencode.json` plugin list
+1. Remove `opencode-nim-rotator` from your `~/.config/opencode/opencode.json` plugin list
 2. Delete your key store file at `~/.config/opencode/nim-rotator-keys.json`
 
 **Note:** This will permanently delete all stored API keys, so back them up first if needed. After uninstalling, restart opencode to apply the changes.

@@ -1,5 +1,5 @@
 {
-  "name": "opencode-nvidia-nim-key-rotator",
+  "name": "opencode-nim-rotator",
   "version": "1.0.0",
   "description": "An OpenCode plugin for managing and rotating multiple NVIDIA NIM API keys",
   "main": "dist/index.js",

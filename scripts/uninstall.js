@@ -29,10 +29,8 @@ async function uninstall() {
       if (Array.isArray(config.plugin)) {
         const beforeLength = config.plugin.length;
         config.plugin = config.plugin.filter(function (p) {
-          if (typeof p === "string")
-            return p !== "opencode-nvidia-nim-key-rotator";
-          if (Array.isArray(p))
-            return p[0] !== "opencode-nvidia-nim-key-rotator";
+          if (typeof p === "string") return p !== "opencode-nim-rotator";
+          if (Array.isArray(p)) return p[0] !== "opencode-nim-rotator";
           return true;
         });
 
@@ -41,7 +39,7 @@ async function uninstall() {
             mode: 0o600,
           });
           console.log(
-            "Removed opencode-nvidia-nim-key-rotator from opencode.json plugin list",
+            "Removed opencode-nim-rotator from opencode.json plugin list",
           );
           configModified = true;
         } else {
