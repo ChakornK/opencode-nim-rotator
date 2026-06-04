@@ -10,8 +10,12 @@ import type { RotatorTheme } from "../themes.js";
 import { state } from "./state.js";
 import type { SelectOption } from "./types.js";
 
-export function events(vnode: VNode): VNode & Record<string, any> {
-  return vnode as any;
+interface EventTarget {
+  on(event: string, handler: (...args: any[]) => void): void;
+}
+
+export function events(vnode: VNode): EventTarget {
+  return vnode as unknown as EventTarget;
 }
 
 export function asRenderable(id: string): any {
@@ -48,7 +52,7 @@ export function themedSelect(
     descriptionColor: c.descriptionColor,
     selectedDescriptionColor: c.selectedDescriptionColor,
   });
-  events(sel).on("itemSelected" as any, onItemSelected);
+  events(sel).on("itemSelected", onItemSelected);
   state.focusTargetId = id;
   return sel;
 }
@@ -57,18 +61,20 @@ export function themedInput(
   id: string,
   placeholder: string,
   width: number,
-): VNode & { value: string } {
+  value?: string,
+): VNode {
   const c = inputColors(getActiveTheme());
   state.focusTargetId = id;
   return Input({
     id,
     placeholder,
     width,
+    value,
     backgroundColor: c.backgroundColor,
     focusedBackgroundColor: c.focusedBackgroundColor,
     textColor: c.textColor,
     cursorColor: c.cursorColor,
-  }) as any;
+  });
 }
 
 export function applyThemeToScreen(theme: RotatorTheme): void {

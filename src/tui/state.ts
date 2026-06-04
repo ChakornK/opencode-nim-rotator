@@ -2,6 +2,7 @@ import type { KeyStore } from "../types.js";
 import { loadStore } from "../storage.js";
 import { getActiveTheme } from "../themes.js";
 import type { Screen } from "./types.js";
+import type { CliRenderer } from "@opentui/core";
 
 export const state: {
   store: KeyStore;
@@ -19,7 +20,7 @@ export const state: {
   themeSelectorIndex: number;
   isRendering: boolean;
   renderPending: boolean;
-  renderer: any;
+  renderer: CliRenderer | null;
 } = {
   store: loadStore() as KeyStore,
   currentScreen: "list",

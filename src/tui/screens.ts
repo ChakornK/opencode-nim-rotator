@@ -262,7 +262,7 @@ export function buildThemeSelector(): ScreenContent {
     },
   );
 
-  events(selector).on("selectionChanged" as any, (index: number) => {
+  events(selector).on("selectionChanged", (index: number) => {
     state.themeSelectorIndex = index;
     const option = options[index];
     if (!option) return;
@@ -351,7 +351,7 @@ export function buildAddNameInput(): ScreenContent {
     40,
   );
 
-  events(input).on("enter" as any, (value: string) => {
+  events(input).on("enter", (value: string) => {
     state.pendingKeyName = value.trim();
     if (!state.pendingKeyName) {
       setStatus("Name is required", theme.error);
@@ -384,7 +384,7 @@ export function buildAddKeyInput(): ScreenContent {
   const theme = getActiveTheme();
   const input = themedInput("add-key-input", "nvapi-...", 55);
 
-  events(input).on("enter" as any, (value: string) => {
+  events(input).on("enter", (value: string) => {
     const key = value.trim();
     if (!key) {
       setStatus("API key is required", theme.error);
@@ -430,10 +430,14 @@ export function buildRenameInput(): ScreenContent {
   const entry = state.store.keys.find((k) => k.id === state.renameTargetId);
   const currentName = entry?.name ?? "";
 
-  const input = themedInput("rename-input", "New friendly name", 40);
-  (input as any).value = currentName;
+  const input = themedInput(
+    "rename-input",
+    "New friendly name",
+    40,
+    currentName,
+  );
 
-  events(input).on("enter" as any, (value: string) => {
+  events(input).on("enter", (value: string) => {
     const newName = value.trim();
     if (!newName) {
       setStatus("Name is required", theme.error);

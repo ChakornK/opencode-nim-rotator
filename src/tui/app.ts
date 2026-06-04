@@ -25,7 +25,8 @@ export function initApp(): void {
   setRenderApp(renderApp);
 
   // Key bindings
-  (state.renderer.keyInput as any).on("keypress", (key: any) => {
+  if (!state.renderer) return;
+  state.renderer.keyInput.on("keypress", (key: any) => {
     if (key.name === "escape") {
       switch (state.currentScreen) {
         case "list":
@@ -83,6 +84,7 @@ function renderApp(): void {
 }
 
 function doRenderApp(): void {
+  if (!state.renderer) return;
   state.focusTargetId = null;
   for (const child of state.renderer.root.getChildren())
     child.destroyRecursively();
