@@ -1,4 +1,4 @@
-import { getActiveTheme } from "../themes.js";
+import { getActiveTheme, setPreviewTheme } from "../themes.js";
 import { resetFailures, saveStore, toggleKey } from "../storage.js";
 import { state, navigate, refreshStore, setStatus } from "./state.js";
 
@@ -61,6 +61,7 @@ export function handleMenuSelect(value: string): void {
       break;
     }
     case "theme":
+      setPreviewTheme(null);
       navigate("theme-selector");
       break;
     case "quit":

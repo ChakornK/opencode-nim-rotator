@@ -26,36 +26,39 @@ export function initApp(): void {
 
   // Key bindings
   if (!state.renderer) return;
-  state.renderer.keyInput.on("keypress", (key: any) => {
-    if (key.name === "escape") {
-      switch (state.currentScreen) {
-        case "list":
-          return;
-        case "key-selector":
-          return navigateTo("list");
-        case "key-actions":
-          return navigateTo("key-selector");
-        case "add-name":
-        case "add-key":
-          state.pendingKeyName = "";
-          return navigateTo("list");
-        case "rename":
-          state.renameTargetId = null;
-          return navigateTo("key-actions");
-        case "confirm-delete":
-          state.deleteTargetId = null;
-          return navigateTo("key-actions");
-        case "theme-selector":
-          setPreviewTheme(null);
-          return navigateTo("list");
+  state.renderer.keyInput.on(
+    "keypress",
+    (key: { name: string; ctrl: boolean }) => {
+      if (key.name === "escape") {
+        switch (state.currentScreen) {
+          case "list":
+            return;
+          case "key-selector":
+            return navigateTo("list");
+          case "key-actions":
+            return navigateTo("key-selector");
+          case "add-name":
+          case "add-key":
+            state.pendingKeyName = "";
+            return navigateTo("list");
+          case "rename":
+            state.renameTargetId = null;
+            return navigateTo("key-actions");
+          case "confirm-delete":
+            state.deleteTargetId = null;
+            return navigateTo("key-actions");
+          case "theme-selector":
+            setPreviewTheme(null);
+            return navigateTo("list");
+        }
       }
-    }
 
-    if (key.ctrl && key.name === "c") {
-      if (state.renderer) state.renderer.destroy();
-      process.exit(0);
-    }
-  });
+      if (key.ctrl && key.name === "c") {
+        if (state.renderer) state.renderer.destroy();
+        process.exit(0);
+      }
+    },
+  );
 
   // Initial render
   renderApp();

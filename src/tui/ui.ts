@@ -10,8 +10,14 @@ import type { RotatorTheme } from "../themes.js";
 import { state } from "./state.js";
 import type { SelectOption } from "./types.js";
 
+type EventHandler = (...args: any[]) => void;
+
 interface EventTarget {
-  on(event: string, handler: (...args: any[]) => void): void;
+  on(
+    event: "itemSelected" | "selectionChanged" | "enter",
+    handler: EventHandler,
+  ): void;
+  on(event: string, handler: EventHandler): void;
 }
 
 export function events(vnode: VNode): EventTarget {
