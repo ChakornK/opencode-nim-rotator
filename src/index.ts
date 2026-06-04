@@ -5,7 +5,6 @@ import {
   addKey,
   getNextKey,
   recordFailure,
-  resetFailures,
   getActiveKeys,
 } from "./storage.js";
 import type { KeyStore, KeyStoreConfig } from "./types.js";
@@ -18,73 +17,6 @@ function isValidStrategy(
   val: unknown,
 ): val is KeyStoreConfig["rotationStrategy"] {
   return typeof val === "string" && VALID_STRATEGIES.includes(val as any);
-}
-
-function createRotatingFetch(store: KeyStore, config?: KeyStoreConfig) {
-  return async function rotatingFetch(
-    input: string | URL | Request,
-    init?: RequestInit,
-  ): Promise<Response> {
-    const next = getNextKey(store, config);
-    if (!next) {
-      return fetch(input, init);
-    }
-
-    saveStore(store, config);
-
-    const headers = new Headers(
-      init?.headers instanceof Headers
-        ? init.headers
-        : Array.isArray(init?.headers)
-          ? init.headers
-          : (init?.headers as Record<string, string> | undefined),
-    );
-
-    headers.delete("authorization");
-    headers.delete("Authorization");
-    headers.set("Authorization", `Bearer ${next.key.key}`);
-
-    const newInit: RequestInit = {
-      ...init,
-      headers,
-    };
-
-    try {
-      const response = await fetch(input, newInit);
-      if (response.status === 401 || response.status === 403) {
-        recordFailure(store, next.key.id);
-        saveStore(store, config);
-
-        const retry = getNextKey(store, config);
-        if (retry && retry.key.id !== next.key.id) {
-          const retryHeaders = new Headers(headers);
-          retryHeaders.delete("authorization");
-          retryHeaders.delete("Authorization");
-          retryHeaders.set("Authorization", `Bearer ${retry.key.key}`);
-          saveStore(store, config);
-          const retryResponse = await fetch(input, {
-            ...newInit,
-            headers: retryHeaders,
-          });
-          if (retryResponse.status === 401 || retryResponse.status === 403) {
-            recordFailure(store, retry.key.id);
-            saveStore(store, config);
-          }
-          return retryResponse;
-        }
-      } else if (response.ok) {
-        if (next.key.failureCount > 0) {
-          resetFailures(store, next.key.id);
-          saveStore(store, config);
-        }
-      }
-      return response;
-    } catch (err) {
-      recordFailure(store, next.key.id);
-      saveStore(store, config);
-      throw err;
-    }
-  };
 }
 
 function isAuthError(obj: unknown): boolean {
@@ -114,6 +46,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
   const store = loadStore(config);
   const activeKeys = getActiveKeys(store, config);
 
+  // Seed an env key if the store is empty
   if (activeKeys.length === 0) {
     const envKey = process.env.NVIDIA_API_KEY;
     if (envKey) {
@@ -125,20 +58,13 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   }
 
-  const rotatingFetch = createRotatingFetch(store, config);
-
   const hooks: Hooks = {
     auth: {
       provider: PROVIDER_ID,
-      loader: async (getAuth) => {
-        const auth = await getAuth();
-        if (auth?.type !== "api") return {};
-
-        return {
-          apiKey: auth.key,
-          fetch: rotatingFetch,
-        };
-      },
+      // We deliberately omit auth.loader. The fetch we used
+      // to return was never called by opencode; it only uses
+      // the apiKey string from the authorize step.  Rotation is
+      // handled in chat.headers instead.
       methods: [
         {
           type: "api",
@@ -164,6 +90,16 @@ export const NvidiaNimKeyRotator: Plugin = async (
           },
         },
       ],
+    },
+    // Rotate the API key on every outgoing request by mutating the
+    // Authorization header.  This is the hook that actually runs
+    // before each LLM call, unlike auth.loader which only runs once.
+    "chat.headers": async (_input, _output) => {
+      const next = getNextKey(store, config);
+      if (next) {
+        _output.headers["Authorization"] = `Bearer ${next.key.key}`;
+        saveStore(store, config);
+      }
     },
     "shell.env": async (_input, output) => {
       if (output.env.NVIDIA_API_KEY !== undefined) {
