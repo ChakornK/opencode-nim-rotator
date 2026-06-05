@@ -81,7 +81,7 @@ export function buildMainMenu(): ScreenContent {
     },
     hasKeys && {
       name: "Export Keys",
-      description: "Export all keys to a JSON file (owner-only permissions)",
+      description: "Export all keys to a JSON file",
       value: "export",
     },
     {
@@ -517,10 +517,6 @@ export function buildExportPathInput(): ScreenContent {
         content: `Export ${state.store.keys.length} key(s) to JSON file:`,
         fg: theme.text,
       }),
-      Text({
-        content: "File will be saved with owner-only permissions (0600)",
-        fg: theme.textMuted,
-      }),
       input,
     ),
     helpText: "[Enter] export [Esc] cancel",
@@ -578,10 +574,6 @@ export function buildImportPathInput(): ScreenContent {
       Text({
         content: "Import keys from JSON file:",
         fg: theme.text,
-      }),
-      Text({
-        content: "File must have owner-only permissions",
-        fg: theme.textMuted,
       }),
       input,
     ),
