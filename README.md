@@ -4,9 +4,9 @@ An [OpenCode](https://opencode.ai) plugin for managing and rotating multiple NVI
 
 ## How It Works
 
-The plugin uses OpenCode's `auth` hook with a custom `fetch` function to intercept every NVIDIA NIM API call and inject a rotated API key into the `Authorization` header. This is the same pattern used by the codex and github-copilot plugins in production.
+The plugin hooks into OpenCode's `chat.headers` pipeline to inject a rotated API key into the `Authorization` header on every outgoing NVIDIA NIM API request. It also hooks `shell.env` so NVIDIA API keys are rotated for shell commands too.
 
-**Key rotation happens per-request**: each LLM call uses the next key in the rotation. If a key returns 401/403, it automatically increments the failure count and retries with the next key.
+**Key rotation happens per-request**: each LLM call uses the next key in the rotation. If a key returns 401, 403, or 429, it automatically increments the failure count and retries with the next key.
 
 ## Install
 
@@ -48,10 +48,12 @@ The TUI lets you:
 - **Toggle** keys on/off
 - **Reset** failure counts
 - **Switch** rotation strategy (round-robin or least-failures)
+- **Export** keys to a JSON file
+- **Import** keys from a JSON file
 
 ### 3. Restart OpenCode
 
-After adding keys, restart opencode. The plugin's `auth` loader will fire on startup and provide the custom `fetch` that rotates keys.
+After adding keys, restart opencode. The plugin's `chat.headers` hook will rotate keys on every NVIDIA API request.
 
 ## Configuration
 
@@ -61,6 +63,7 @@ After adding keys, restart opencode. The plugin's `auth` loader will fire on sta
 | -------------------------- | ----------------------------------- | ------------------------------------------ |
 | `NIM_ROTATOR_STORE_PATH`   | Path to key store JSON file         | `~/.config/opencode/nim-rotator-keys.json` |
 | `NIM_ROTATOR_MAX_FAILURES` | Max failures before disabling a key | `5`                                        |
+| `NVIDIA_API_KEY`           | Fallback API key (auto-seeded)      | —                                          |
 
 ### opencode.json Options
 
@@ -85,11 +88,11 @@ After adding keys, restart opencode. The plugin's `auth` loader will fire on sta
 
 ## How Key Rotation Works
 
-1. On startup, the `auth` hook `loader` registers a custom `fetch` for the `nvidia` provider
-2. Every NVIDIA API call goes through this custom fetch
-3. The fetch selects the next key based on the rotation strategy
+1. On startup, the plugin loads the key store
+2. Every NVIDIA API call goes through the `chat.headers` hook
+3. The hook selects the next key based on the rotation strategy
 4. The `Authorization: Bearer <key>` header is replaced with the rotated key
-5. If the request returns 401/403, the failure count is incremented and the next key is tried
+5. If the request returns 401, 403, or 429, the failure count is incremented and the next key is tried
 6. Keys that exceed `NIM_ROTATOR_MAX_FAILURES` are automatically skipped
 7. Successful requests reset the key's failure count to 0
 
@@ -163,11 +166,13 @@ Set the store `theme` field to `""` or remove it to revert to syncing with `open
 
 The TUI is built with [OpenTUI](https://opentui.com) and provides a menu-driven interface:
 
-- Main menu with Add, Manage, Strategy, and Theme options
-- Key selector showing name, masked key, failure count, last used
-- Key actions: toggle, rename, delete
-- Add key flow: enter name, then enter key
-- Theme selector with sync-to-opencode option
+- **Main menu** with Manage, Add, Reset Failures, Export, Import, Strategy, Theme, and Quit options
+- **Key selector** showing name, masked key, failure count, last used
+- **Key actions**: toggle, rename, delete
+- **Add key** flow: enter name, then enter key (must start with `nvapi-`)
+- **Theme selector** with live preview and sync-to-opencode option
+- **Export keys** to JSON file
+- **Import keys** from JSON file with validation and deduplication
 
 ## Development
 
