@@ -19,9 +19,7 @@ import {
   validateImportPayload,
   removeKey,
   renameKey,
-  resetFailures,
   saveStore,
-  toggleKey,
 } from "../storage.js";
 import {
   state,

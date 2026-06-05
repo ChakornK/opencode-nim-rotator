@@ -16,7 +16,7 @@ const VALID_STRATEGIES = ["round-robin", "least-failures"] as const;
 function isValidStrategy(
   val: unknown,
 ): val is KeyStoreConfig["rotationStrategy"] {
-  return typeof val === "string" && VALID_STRATEGIES.includes(val as any);
+  return val === "round-robin" || val === "least-failures";
 }
 
 function isRecoverableError(obj: unknown): boolean {

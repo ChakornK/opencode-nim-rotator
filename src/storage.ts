@@ -13,7 +13,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { join, dirname, resolve } from "path";
+import { join, dirname, basename, resolve } from "path";
 import { homedir } from "os";
 import type {
   ApiKeyEntry,
@@ -83,7 +83,14 @@ export function checkFilePermissions(filePath: string): string | null {
 }
 
 export function validateExportPath(filePath: string): string | null {
-  const resolved = resolve(filePath);
+  let resolved: string;
+  const dir = dirname(filePath);
+  try {
+    const dirRes = realpathSync(dir);
+    resolved = join(dirRes, basename(filePath));
+  } catch {
+    resolved = resolve(filePath);
+  }
   for (const prefix of SYSTEM_PATH_PREFIXES) {
     if (resolved.startsWith(prefix)) {
       return "Cannot write to system directories";
@@ -265,7 +272,11 @@ export function getNextKey(
   let idx = store.currentIndex % active.length;
   const selected = active[idx];
   const realIdx = store.keys.indexOf(selected);
-  store.currentIndex = (idx + 1) % active.length;
+  if (store.currentIndex >= active.length) {
+    store.currentIndex = idx;
+  } else {
+    store.currentIndex = (idx + 1) % active.length;
+  }
   store.lastUsedKeyId = selected.id;
   selected.lastUsedAt = Date.now();
   return { key: selected, index: realIdx };
