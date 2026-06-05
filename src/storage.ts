@@ -274,11 +274,11 @@ export function getNextKey(
   }
 
   // round-robin
-  let idx = store.currentIndex % active.length;
+  const idx = store.currentIndex % active.length;
   const selected = active[idx];
   const realIdx = store.keys.indexOf(selected);
   if (store.currentIndex >= active.length) {
-    store.currentIndex = idx;
+    store.currentIndex = 0;
   } else {
     store.currentIndex = (idx + 1) % active.length;
   }
