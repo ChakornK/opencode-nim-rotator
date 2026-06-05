@@ -1,4 +1,5 @@
 import { Box, Text } from "@opentui/core";
+import pkg from "../../package.json";
 import { getActiveKeys } from "../storage.js";
 import { getActiveTheme, setPreviewTheme } from "../themes.js";
 import { state, setNavigate, setRenderApp } from "./state.js";
@@ -133,11 +134,16 @@ function doRenderApp(): void {
   })();
 
   const title = Box(
-    { flexDirection: "row" },
+    { flexDirection: "row", gap: 2 },
     Text({
       id: "title-text",
       content: "NVIDIA NIM Key Rotator",
       fg: theme.primary,
+    }),
+    Text({
+      id: "version-text",
+      content: `v${pkg.version}`,
+      fg: theme.textMuted,
     }),
   );
 
