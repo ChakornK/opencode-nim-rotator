@@ -259,7 +259,12 @@ export function getNextKey(
     config?.rotationStrategy ?? store.rotationStrategy ?? "round-robin";
 
   if (strategy === "least-failures") {
-    const sorted = [...active].sort((a, b) => a.failureCount - b.failureCount);
+    const sorted = [...active].sort((a, b) => {
+      if (a.failureCount !== b.failureCount) {
+        return a.failureCount - b.failureCount;
+      }
+      return (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0);
+    });
     const best = sorted[0];
     const idx = store.keys.indexOf(best);
     store.currentIndex = idx;

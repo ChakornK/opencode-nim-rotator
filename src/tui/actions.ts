@@ -105,7 +105,7 @@ export function handleExport(filePath: string): void {
       theme.success,
     );
     navigate("list");
-  } catch (err: any) {
+  } catch {
     setStatus(`Export failed: check file path and permissions`, theme.error);
     callRenderApp();
   }
