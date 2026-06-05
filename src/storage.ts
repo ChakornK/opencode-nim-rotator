@@ -1,7 +1,27 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join, dirname } from "path";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import { join, dirname, resolve } from "path";
 import { homedir } from "os";
-import type { ApiKeyEntry, KeyStore, KeyStoreConfig } from "./types.js";
+import type {
+  ApiKeyEntry,
+  ExportedKey,
+  ExportPayload,
+  KeyStore,
+  KeyStoreConfig,
+} from "./types.js";
 
 const DEFAULT_STORE_PATH = join(
   homedir(),
@@ -10,6 +30,12 @@ const DEFAULT_STORE_PATH = join(
   "nim-rotator-keys.json",
 );
 export const DEFAULT_MAX_FAILURES = 5;
+
+const MAX_IMPORT_SIZE = 1024 * 1024;
+const MAX_IMPORT_KEYS = 100;
+const MAX_KEY_LENGTH = 256;
+const MAX_NAME_LENGTH = 128;
+const SYSTEM_PATH_PREFIXES = ["/etc/", "/proc/", "/sys/", "/dev/"];
 
 function getDefaultStore(): KeyStore {
   return {
@@ -29,25 +55,114 @@ export function resolveStorePath(config?: KeyStoreConfig): string {
   );
 }
 
+export function checkFilePermissions(filePath: string): string | null {
+  try {
+    if (!existsSync(filePath)) return "File does not exist";
+    const resolvedPath = realpathSync(filePath);
+    const lstat = lstatSync(filePath);
+    if (lstat.isSymbolicLink()) {
+      return "File is a symbolic link. Refusing to follow symlinks.";
+    }
+    const stat = statSync(resolvedPath);
+    const mode = stat.mode;
+    const othersPerm = mode & 0o007;
+    if (othersPerm !== 0) {
+      return "File is world-accessible. Refusing to read from insecure file.";
+    }
+    const groupPerm = mode & 0o070;
+    if ((groupPerm & 0o040) !== 0) {
+      return "File is group-readable. Refusing to read from insecure file.";
+    }
+    if ((groupPerm & 0o020) !== 0) {
+      return "File is group-writable. Refusing to read from insecure file.";
+    }
+    return null;
+  } catch {
+    return "Cannot verify file permissions";
+  }
+}
+
+export function validateExportPath(filePath: string): string | null {
+  const resolved = resolve(filePath);
+  for (const prefix of SYSTEM_PATH_PREFIXES) {
+    if (resolved.startsWith(prefix)) {
+      return "Cannot write to system directories";
+    }
+  }
+  return null;
+}
+
+function readSecureFile(filePath: string): string | null {
+  let fd: number;
+  try {
+    fd = openSync(filePath, "r");
+  } catch {
+    return null;
+  }
+  try {
+    const stat = fstatSync(fd);
+    const mode = stat.mode;
+    const othersPerm = mode & 0o007;
+    if (othersPerm !== 0) return null;
+    const groupPerm = mode & 0o070;
+    if ((groupPerm & 0o040) !== 0) return null;
+    if ((groupPerm & 0o020) !== 0) return null;
+    const buf = Buffer.alloc(stat.size);
+    const bytesRead = readSync(fd, buf, 0, stat.size, 0);
+    return buf.toString("utf-8", 0, bytesRead);
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export function loadStore(config?: KeyStoreConfig): KeyStore {
   const storePath = resolveStorePath(config);
   try {
     if (existsSync(storePath)) {
-      const raw = readFileSync(storePath, "utf-8");
-      const data = JSON.parse(raw) as KeyStore;
-      if (!data.keys || !Array.isArray(data.keys)) {
-        console.warn(
-          `[nim-rotator] Store at "${storePath}" has invalid keys format, using defaults`,
+      const resolvedPath = realpathSync(storePath);
+      const lstat = lstatSync(storePath);
+      if (lstat.isSymbolicLink()) {
+        console.error(
+          "[nim-rotator] SECURITY: Key store is a symlink. Refusing to load.",
         );
         return getDefaultStore();
       }
+      const permError = checkFilePermissions(storePath);
+      if (permError) {
+        console.error(`[nim-rotator] SECURITY: ${permError}`);
+        console.error(
+          `[nim-rotator] Fix permissions: chmod 600 "${storePath}"`,
+        );
+        return getDefaultStore();
+      }
+      const raw = readFileSync(resolvedPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== "object" || !Array.isArray(data.keys)) {
+        console.warn("[nim-rotator] Store has invalid format, using defaults");
+        return getDefaultStore();
+      }
       return {
-        ...getDefaultStore(),
-        ...data,
+        keys: Array.isArray(data.keys) ? data.keys : [],
+        currentIndex:
+          typeof data.currentIndex === "number" ? data.currentIndex : 0,
+        rotationStrategy:
+          data.rotationStrategy === "least-failures"
+            ? "least-failures"
+            : "round-robin",
+        updatedAt:
+          typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
+        lastUsedKeyId:
+          typeof data.lastUsedKeyId === "string"
+            ? data.lastUsedKeyId
+            : undefined,
       };
     }
-  } catch (err) {
-    console.error(`[nim-rotator] Failed to load store at "${storePath}":`, err);
+  } catch {
+    console.error(
+      "[nim-rotator] Failed to load key store. Check file permissions and format.",
+    );
     console.warn(
       "[nim-rotator] Starting with a fresh store. Your existing keys are preserved on disk.",
     );
@@ -59,12 +174,21 @@ export function saveStore(store: KeyStore, config?: KeyStoreConfig): void {
   const storePath = resolveStorePath(config);
   const dir = dirname(storePath);
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   store.updatedAt = Date.now();
-  writeFileSync(storePath, JSON.stringify(store, null, 2) + "\n", {
-    mode: 0o600,
-  });
+  const tmpPath = storePath + ".tmp." + process.pid;
+  try {
+    writeFileSync(tmpPath, JSON.stringify(store, null, 2) + "\n", {
+      mode: 0o600,
+    });
+    renameSync(tmpPath, storePath);
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {}
+    throw err;
+  }
 }
 
 export function addKey(store: KeyStore, name: string, key: string): void {
@@ -159,4 +283,177 @@ export function resetFailures(store: KeyStore, keyId?: string): void {
   } else {
     for (const k of store.keys) k.failureCount = 0;
   }
+}
+
+export function exportKeys(store: KeyStore): ExportPayload {
+  return {
+    version: 1,
+    exportedAt: Date.now(),
+    keys: store.keys.map((k) => ({ name: k.name, key: k.key })),
+  };
+}
+
+export function writeExportFile(
+  payload: ExportPayload,
+  filePath: string,
+): void {
+  const pathError = validateExportPath(filePath);
+  if (pathError) throw new Error(pathError);
+  const dir = dirname(filePath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  const tmpPath = filePath + ".tmp." + process.pid;
+  try {
+    writeFileSync(tmpPath, JSON.stringify(payload, null, 2) + "\n", {
+      mode: 0o600,
+    });
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {}
+    throw err;
+  }
+}
+
+export function readAndValidateImportFile(
+  filePath: string,
+): { raw: string } | { error: string } {
+  const resolved = resolve(filePath);
+  for (const prefix of SYSTEM_PATH_PREFIXES) {
+    if (resolved.startsWith(prefix)) {
+      return { error: "Cannot read from system directories" };
+    }
+  }
+  const permError = checkFilePermissions(filePath);
+  if (permError) return { error: permError };
+
+  const raw = readSecureFile(filePath);
+  if (raw === null)
+    return { error: "Cannot read file or file has insecure permissions" };
+  return { raw };
+}
+
+export interface ImportResult {
+  added: number;
+  skipped: number;
+  errors: string[];
+  pendingKeys: ExportedKey[];
+}
+
+export function validateImportPayload(raw: string): ImportResult {
+  const result: ImportResult = {
+    added: 0,
+    skipped: 0,
+    errors: [],
+    pendingKeys: [],
+  };
+
+  if (raw.length > MAX_IMPORT_SIZE) {
+    result.errors.push(
+      `Import file too large (max ${MAX_IMPORT_SIZE / 1024}KB)`,
+    );
+    return result;
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    result.errors.push("Invalid JSON format");
+    return result;
+  }
+
+  if (typeof data !== "object" || data === null) {
+    result.errors.push("Expected a JSON object");
+    return result;
+  }
+
+  const rec = data as Record<string, unknown>;
+  if (rec.version !== 1) {
+    result.errors.push("Unsupported export version");
+    return result;
+  }
+
+  if (!Array.isArray(rec.keys)) {
+    result.errors.push("Missing or invalid 'keys' array");
+    return result;
+  }
+
+  for (const entry of rec.keys) {
+    if (result.pendingKeys.length >= MAX_IMPORT_KEYS) {
+      result.errors.push(
+        `Too many keys in import file (max ${MAX_IMPORT_KEYS})`,
+      );
+      break;
+    }
+
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      typeof (entry as Record<string, unknown>).name !== "string" ||
+      typeof (entry as Record<string, unknown>).key !== "string"
+    ) {
+      result.errors.push(
+        "Invalid key entry: must have 'name' and 'key' strings",
+      );
+      continue;
+    }
+
+    const name = ((entry as Record<string, unknown>).name as string).trim();
+    const key = ((entry as Record<string, unknown>).key as string).trim();
+
+    if (!name) {
+      result.errors.push("Key entry has empty name");
+      continue;
+    }
+    if (name.length > MAX_NAME_LENGTH) {
+      result.errors.push("Key name exceeds maximum length");
+      continue;
+    }
+    if (!key) {
+      result.errors.push(`Key "${name}" has empty key value`);
+      continue;
+    }
+    if (key.length > MAX_KEY_LENGTH) {
+      result.errors.push(`Key "${name}" exceeds maximum length`);
+      continue;
+    }
+    if (!key.startsWith("nvapi-")) {
+      result.errors.push(`Key "${name}" does not start with 'nvapi-'`);
+      continue;
+    }
+
+    result.pendingKeys.push({ name, key });
+  }
+
+  return result;
+}
+
+export function applyImport(
+  store: KeyStore,
+  pendingKeys: ExportedKey[],
+): { added: number; skipped: number } {
+  let added = 0;
+  let skipped = 0;
+
+  for (const { name, key } of pendingKeys) {
+    const existingByName = store.keys.find((k) => k.name === name);
+    if (existingByName) {
+      skipped++;
+      continue;
+    }
+
+    const existingByKey = store.keys.find((k) => k.key === key);
+    if (existingByKey) {
+      skipped++;
+      continue;
+    }
+
+    addKey(store, name, key);
+    added++;
+  }
+
+  return { added, skipped };
 }

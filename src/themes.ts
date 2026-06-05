@@ -451,11 +451,12 @@ export function getResolvedTheme(): RotatorTheme {
   return themes["opencode"]!;
 }
 
+const THEME_OVERRIDE_PATH = join(CONFIG_DIR, "nim-rotator-theme.json");
+
 export function getThemeOverride(): string | null {
   try {
-    const storePath = join(CONFIG_DIR, "nim-rotator-keys.json");
-    if (!existsSync(storePath)) return null;
-    const raw = readFileSync(storePath, "utf-8");
+    if (!existsSync(THEME_OVERRIDE_PATH)) return null;
+    const raw = readFileSync(THEME_OVERRIDE_PATH, "utf-8");
     const data = JSON.parse(raw);
     return data.theme ?? null;
   } catch {}
@@ -464,22 +465,16 @@ export function getThemeOverride(): string | null {
 
 export function saveThemeOverride(themeId: string): void {
   try {
-    const storePath = join(CONFIG_DIR, "nim-rotator-keys.json");
-    let data: Record<string, unknown> = {};
-    if (existsSync(storePath)) {
-      const raw = readFileSync(storePath, "utf-8");
-      data = JSON.parse(raw);
-    }
-    data.theme = themeId;
-    const dir = dirname(storePath);
+    const data = { theme: themeId };
+    const dir = dirname(THEME_OVERRIDE_PATH);
     if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    writeFileSync(storePath, JSON.stringify(data, null, 2) + "\n", {
+    writeFileSync(THEME_OVERRIDE_PATH, JSON.stringify(data, null, 2) + "\n", {
       mode: 0o600,
     });
   } catch (err) {
-    console.warn("[nim-rotator] Could not save theme preference:", err);
+    console.warn("[nim-rotator] Could not save theme preference");
   }
 }
 

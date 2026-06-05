@@ -1,6 +1,19 @@
 import { getActiveTheme, setPreviewTheme } from "../themes.js";
-import { resetFailures, saveStore, toggleKey } from "../storage.js";
-import { state, navigate, refreshStore, setStatus } from "./state.js";
+import {
+  exportKeys,
+  applyImport,
+  resetFailures,
+  saveStore,
+  toggleKey,
+  writeExportFile,
+} from "../storage.js";
+import {
+  state,
+  navigate,
+  callRenderApp,
+  refreshStore,
+  setStatus,
+} from "./state.js";
 
 export function handleKeyAction(action: string): void {
   if (!state.selectedKeyId) return;
@@ -64,8 +77,59 @@ export function handleMenuSelect(value: string): void {
       setPreviewTheme(null);
       navigate("theme-selector");
       break;
+    case "export":
+      navigate("export-path");
+      break;
+    case "import":
+      navigate("import-path");
+      break;
     case "quit":
       if (state.renderer) state.renderer.destroy();
       process.exit(0);
   }
+}
+
+export function handleExport(filePath: string): void {
+  const theme = getActiveTheme();
+  const path = filePath.trim();
+  if (!path) {
+    setStatus("File path is required", theme.error);
+    callRenderApp();
+    return;
+  }
+  try {
+    const payload = exportKeys(state.store);
+    writeExportFile(payload, path);
+    setStatus(
+      `Exported ${payload.keys.length} key(s) to ${path}`,
+      theme.success,
+    );
+    navigate("list");
+  } catch (err: any) {
+    setStatus(`Export failed: check file path and permissions`, theme.error);
+    callRenderApp();
+  }
+}
+
+export function handleImportConfirm(value: string): void {
+  const theme = getActiveTheme();
+  if (value !== "yes" || !state.pendingImportResult) {
+    state.pendingImportPath = "";
+    state.pendingImportResult = null;
+    navigate("list");
+    return;
+  }
+  const { added, skipped } = applyImport(
+    state.store,
+    state.pendingImportResult.pendingKeys,
+  );
+  saveStore(state.store);
+  refreshStore();
+  const parts: string[] = [];
+  if (added > 0) parts.push(`${added} added`);
+  if (skipped > 0) parts.push(`${skipped} skipped`);
+  setStatus(`Import complete: ${parts.join(", ")}`, theme.success);
+  state.pendingImportPath = "";
+  state.pendingImportResult = null;
+  navigate("list");
 }

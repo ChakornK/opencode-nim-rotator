@@ -1,4 +1,5 @@
 import type { KeyStore } from "../types.js";
+import type { ImportResult } from "../storage.js";
 import { loadStore } from "../storage.js";
 import { getActiveTheme } from "../themes.js";
 import type { Screen } from "./types.js";
@@ -18,6 +19,8 @@ export const state: {
   keySelectorIndex: number;
   keyActionsIndex: number;
   themeSelectorIndex: number;
+  pendingImportPath: string;
+  pendingImportResult: ImportResult | null;
   isRendering: boolean;
   renderPending: boolean;
   renderer: CliRenderer | null;
@@ -35,6 +38,8 @@ export const state: {
   keySelectorIndex: 0,
   keyActionsIndex: 0,
   themeSelectorIndex: 0,
+  pendingImportPath: "",
+  pendingImportResult: null,
   isRendering: false,
   renderPending: false,
   renderer: null,

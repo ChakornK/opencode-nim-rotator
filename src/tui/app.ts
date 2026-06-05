@@ -12,6 +12,9 @@ import {
   buildAddNameInput,
   buildAddKeyInput,
   buildRenameInput,
+  buildExportPathInput,
+  buildImportPathInput,
+  buildConfirmImport,
 } from "./screens.js";
 import type { ScreenContent } from "./types.js";
 
@@ -49,6 +52,14 @@ export function initApp(): void {
             return navigateTo("key-actions");
           case "theme-selector":
             setPreviewTheme(null);
+            return navigateTo("list");
+          case "export-path":
+            return navigateTo("list");
+          case "import-path":
+            return navigateTo("list");
+          case "confirm-import":
+            state.pendingImportPath = "";
+            state.pendingImportResult = null;
             return navigateTo("list");
         }
       }
@@ -112,6 +123,12 @@ function doRenderApp(): void {
         return buildAddKeyInput();
       case "rename":
         return buildRenameInput();
+      case "export-path":
+        return buildExportPathInput();
+      case "import-path":
+        return buildImportPathInput();
+      case "confirm-import":
+        return buildConfirmImport();
     }
   })();
 

@@ -8,6 +8,7 @@ import { readFile, writeFile, unlink } from "fs/promises";
 const CONFIG_DIR = join(homedir(), ".config", "opencode");
 const CONFIG_PATH = join(CONFIG_DIR, "opencode.json");
 const KEYSTORE_PATH = join(CONFIG_DIR, "nim-rotator-keys.json");
+const THEME_PATH = join(CONFIG_DIR, "nim-rotator-theme.json");
 
 async function uninstall() {
   console.log(
@@ -57,14 +58,47 @@ async function uninstall() {
 
   // Remove key store file
   if (existsSync(KEYSTORE_PATH)) {
-    try {
-      await unlink(KEYSTORE_PATH);
-      console.log("Removed key store file: " + KEYSTORE_PATH);
-    } catch (err) {
-      console.warn("Could not remove key store file:", err);
+    if (!process.stdin.isTTY) {
+      console.warn(
+        "Key store file exists but cannot confirm deletion in non-interactive mode.",
+      );
+      console.warn("Manually remove: " + KEYSTORE_PATH);
+    } else {
+      const readline = await import("readline");
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      const answer = await new Promise(function (resolve) {
+        rl.question(
+          "Delete all stored API keys? This cannot be undone. [y/N] ",
+          resolve,
+        );
+      });
+      rl.close();
+      if (answer !== "y" && answer !== "Y") {
+        console.log("Key store preserved at: " + KEYSTORE_PATH);
+      } else {
+        try {
+          await unlink(KEYSTORE_PATH);
+          console.log("Removed key store file");
+        } catch (err) {
+          console.warn("Could not remove key store file:", err);
+        }
+      }
     }
   } else {
     console.log("Key store file not found - skipping");
+  }
+
+  // Remove theme override file
+  if (existsSync(THEME_PATH)) {
+    try {
+      await unlink(THEME_PATH);
+      console.log("Removed theme preference file");
+    } catch (err) {
+      console.warn("Could not remove theme preference file:", err);
+    }
   }
 
   console.log(

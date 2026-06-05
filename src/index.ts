@@ -21,19 +21,21 @@ function isValidStrategy(
 
 function isRecoverableError(obj: unknown): boolean {
   if (typeof obj === "object" && obj !== null) {
-    const name = (obj as any).name;
+    const rec = obj as Record<string, unknown>;
+    const name = rec.name;
     if (name === "ProviderAuthError") return true;
     if (name === "APIError") {
-      const statusCode = (obj as any).data?.statusCode;
+      const data = rec.data as Record<string, unknown> | undefined;
+      const statusCode = data?.statusCode;
       if (statusCode === 401 || statusCode === 403 || statusCode === 429)
         return true;
     }
   }
   const msg = String(obj).toLowerCase();
   return (
-    msg.includes("401") ||
-    msg.includes("403") ||
-    msg.includes("429") ||
+    /\b401\b/.test(msg) ||
+    /\b403\b/.test(msg) ||
+    /\b429\b/.test(msg) ||
     msg.includes("unauthorized") ||
     msg.includes("rate limit")
   );
@@ -119,7 +121,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
     },
     event: async ({ event }) => {
       if (event.type === "session.error") {
-        const error = (event as any).error ?? (event as any).properties?.error;
+        const evt = event as Record<string, unknown>;
+        const props = evt.properties as Record<string, unknown> | undefined;
+        const error = evt.error ?? props?.error;
         if (isRecoverableError(error)) {
           if (store.lastUsedKeyId) {
             recordFailure(store, store.lastUsedKeyId);

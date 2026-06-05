@@ -29,7 +29,7 @@ export function asRenderable(id: string): any {
 }
 
 export function maskKey(key: string): string {
-  return key.length <= 8 ? "****" : `${key.slice(0, 4)}****${key.slice(-4)}`;
+  return key.length <= 8 ? "****" : `${key.slice(0, 5)}****`;
 }
 
 export function themedSelect(

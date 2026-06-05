@@ -16,6 +16,17 @@ export interface KeyStore {
   lastUsedKeyId?: string;
 }
 
+export interface ExportedKey {
+  name: string;
+  key: string;
+}
+
+export interface ExportPayload {
+  version: 1;
+  exportedAt: number;
+  keys: ExportedKey[];
+}
+
 export type KeyStoreConfig = {
   storePath?: string;
   rotationStrategy?: "round-robin" | "least-failures";

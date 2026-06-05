@@ -8,7 +8,10 @@ export type Screen =
   | "add-key"
   | "rename"
   | "confirm-delete"
-  | "theme-selector";
+  | "theme-selector"
+  | "export-path"
+  | "import-path"
+  | "confirm-import";
 
 export interface SelectOption {
   name: string;

@@ -18,7 +18,7 @@ async function install() {
   );
 
   try {
-    await mkdir(CONFIG_DIR, { recursive: true });
+    await mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
   } catch (err) {
     if (err.code !== "EEXIST") throw err;
   }

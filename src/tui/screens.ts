@@ -1,3 +1,5 @@
+import { join } from "path";
+import { homedir } from "os";
 import { Box, Text } from "@opentui/core";
 import {
   getActiveTheme,
@@ -13,6 +15,8 @@ import {
   addKey,
   getActiveKeys,
   getMaxFailures,
+  readAndValidateImportFile,
+  validateImportPayload,
   removeKey,
   renameKey,
   resetFailures,
@@ -35,7 +39,12 @@ import {
   applyThemeToScreen,
 } from "./ui.js";
 import type { ScreenContent, SelectOption } from "./types.js";
-import { handleMenuSelect, handleKeyAction } from "./actions.js";
+import {
+  handleMenuSelect,
+  handleKeyAction,
+  handleExport,
+  handleImportConfirm,
+} from "./actions.js";
 
 function keyStatus(entry: { enabled: boolean; failureCount: number }): string {
   const maxFails = getMaxFailures();
@@ -71,6 +80,16 @@ export function buildMainMenu(): ScreenContent {
       name: "Reset Failures",
       description: "Reset all failure counts to zero",
       value: "reset-failures",
+    },
+    hasKeys && {
+      name: "Export Keys",
+      description: "Export all keys to a JSON file (owner-only permissions)",
+      value: "export",
+    },
+    {
+      name: "Import Keys",
+      description: "Import keys from a JSON file",
+      value: "import",
     },
     {
       name: `Strategy: ${store.rotationStrategy}`,
@@ -467,6 +486,158 @@ export function buildRenameInput(): ScreenContent {
       Text({ content: "Enter new name:", fg: theme.text }),
       input,
     ),
-    helpText: "[Enter] confirm  [Esc] cancel",
+    helpText: "[Enter] confirm [Esc] cancel",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Export Path Input
+// ---------------------------------------------------------------------------
+
+export function buildExportPathInput(): ScreenContent {
+  const theme = getActiveTheme();
+  const defaultPath = "~/nim-keys-export.json";
+  const input = themedInput("export-path-input", defaultPath, 55);
+
+  events(input).on("enter", (value: string) => {
+    let filePath = value.trim();
+    if (!filePath) {
+      setStatus("File path is required", theme.error);
+      callRenderApp();
+      return;
+    }
+    if (filePath.startsWith("~/")) {
+      filePath = join(homedir(), filePath.slice(2));
+    }
+    handleExport(filePath);
+  });
+
+  return {
+    element: Box(
+      { flexDirection: "column", gap: 1 },
+      Text({
+        content: `Export ${state.store.keys.length} key(s) to JSON file:`,
+        fg: theme.text,
+      }),
+      Text({
+        content: "File will be saved with owner-only permissions (0600)",
+        fg: theme.textMuted,
+      }),
+      input,
+    ),
+    helpText: "[Enter] export [Esc] cancel",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Import Path Input
+// ---------------------------------------------------------------------------
+
+export function buildImportPathInput(): ScreenContent {
+  const theme = getActiveTheme();
+  const input = themedInput("import-path-input", "~/nim-keys-export.json", 55);
+
+  events(input).on("enter", (value: string) => {
+    let filePath = value.trim();
+    if (!filePath) {
+      setStatus("File path is required", theme.error);
+      callRenderApp();
+      return;
+    }
+    if (filePath.startsWith("~/")) {
+      filePath = join(homedir(), filePath.slice(2));
+    }
+
+    const fileResult = readAndValidateImportFile(filePath);
+    if ("error" in fileResult) {
+      setStatus(fileResult.error, theme.error);
+      callRenderApp();
+      return;
+    }
+
+    const result = validateImportPayload(fileResult.raw);
+
+    if (result.errors.length > 0) {
+      setStatus(`Import error: ${result.errors[0]}`, theme.error);
+      callRenderApp();
+      return;
+    }
+
+    if (result.pendingKeys.length === 0) {
+      setStatus("No valid keys found in file", theme.warning);
+      navigate("list");
+      return;
+    }
+
+    state.pendingImportPath = filePath;
+    state.pendingImportResult = result;
+    navigate("confirm-import");
+  });
+
+  return {
+    element: Box(
+      { flexDirection: "column", gap: 1 },
+      Text({
+        content: "Import keys from JSON file:",
+        fg: theme.text,
+      }),
+      Text({
+        content: "File must have owner-only permissions",
+        fg: theme.textMuted,
+      }),
+      input,
+    ),
+    helpText: "[Enter] import [Esc] cancel",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Confirm Import
+// ---------------------------------------------------------------------------
+
+export function buildConfirmImport(): ScreenContent {
+  const theme = getActiveTheme();
+  const result = state.pendingImportResult;
+  if (!result) {
+    navigate("list");
+    return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
+  }
+
+  const parts: string[] = [];
+  if (result.pendingKeys.length > 0)
+    parts.push(`${result.pendingKeys.length} key(s) will be imported`);
+  if (result.errors.length > 0)
+    parts.push(`${result.errors.length} entry/entries invalid`);
+
+  const options: SelectOption[] = [
+    {
+      name: "Yes, import",
+      description: parts.join(", "),
+      value: "yes",
+    },
+    { name: "No, cancel", description: "Discard the import", value: "no" },
+  ];
+
+  const confirm = themedSelect(
+    "confirm-import",
+    50,
+    6,
+    options,
+    0,
+    (_index, option) => {
+      handleImportConfirm(option.value);
+    },
+  );
+
+  return {
+    element: Box(
+      { flexDirection: "column", gap: 1 },
+      Text({
+        content: `Confirm import from: ${state.pendingImportPath}`,
+        fg: theme.primary,
+      }),
+      confirm,
+    ),
+    helpText: "[Esc] cancel",
   };
 }
