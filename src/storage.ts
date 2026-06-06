@@ -1,19 +1,12 @@
 import {
-  closeSync,
   existsSync,
-  fstatSync,
-  lstatSync,
   mkdirSync,
-  openSync,
-  readSync,
   readFileSync,
-  realpathSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { join, dirname, basename, resolve } from "path";
+import { join, dirname, resolve } from "path";
 import { homedir } from "os";
 import type {
   ApiKeyEntry,
@@ -55,42 +48,8 @@ export function resolveStorePath(config?: KeyStoreConfig): string {
   );
 }
 
-export function checkFilePermissions(filePath: string): string | null {
-  try {
-    if (!existsSync(filePath)) return "File does not exist";
-    const resolvedPath = realpathSync(filePath);
-    const lstat = lstatSync(filePath);
-    if (lstat.isSymbolicLink()) {
-      return "File is a symbolic link. Refusing to follow symlinks.";
-    }
-    const stat = statSync(resolvedPath);
-    const mode = stat.mode;
-    const othersPerm = mode & 0o007;
-    if (othersPerm !== 0) {
-      return "File is world-accessible. Refusing to read from insecure file.";
-    }
-    const groupPerm = mode & 0o070;
-    if ((groupPerm & 0o040) !== 0) {
-      return "File is group-readable. Refusing to read from insecure file.";
-    }
-    if ((groupPerm & 0o020) !== 0) {
-      return "File is group-writable. Refusing to read from insecure file.";
-    }
-    return null;
-  } catch {
-    return "Cannot verify file permissions";
-  }
-}
-
 export function validateExportPath(filePath: string): string | null {
-  let resolved: string;
-  const dir = dirname(filePath);
-  try {
-    const dirRes = realpathSync(dir);
-    resolved = join(dirRes, basename(filePath));
-  } catch {
-    resolved = resolve(filePath);
-  }
+  const resolved = resolve(filePath);
   for (const prefix of SYSTEM_PATH_PREFIXES) {
     if (resolved.startsWith(prefix)) {
       return "Cannot write to system directories";
@@ -99,77 +58,25 @@ export function validateExportPath(filePath: string): string | null {
   return null;
 }
 
-function readSecureFile(filePath: string): string | null {
-  let fd: number;
-  try {
-    fd = openSync(filePath, "r");
-  } catch {
-    return null;
-  }
-  try {
-    const stat = fstatSync(fd);
-    const mode = stat.mode;
-    const othersPerm = mode & 0o007;
-    if (othersPerm !== 0) return null;
-    const groupPerm = mode & 0o070;
-    if ((groupPerm & 0o040) !== 0) return null;
-    if ((groupPerm & 0o020) !== 0) return null;
-    const buf = Buffer.alloc(stat.size);
-    const bytesRead = readSync(fd, buf, 0, stat.size, 0);
-    return buf.toString("utf-8", 0, bytesRead);
-  } catch {
-    return null;
-  } finally {
-    closeSync(fd);
-  }
-}
-
 export function loadStore(config?: KeyStoreConfig): KeyStore {
   const storePath = resolveStorePath(config);
   try {
     if (existsSync(storePath)) {
-      const resolvedPath = realpathSync(storePath);
-      const lstat = lstatSync(storePath);
-      if (lstat.isSymbolicLink()) {
-        console.error(
-          "[nim-rotator] SECURITY: Key store is a symlink. Refusing to load.",
+      const raw = readFileSync(storePath, "utf-8");
+      const data = JSON.parse(raw) as KeyStore;
+      if (!data.keys || !Array.isArray(data.keys)) {
+        console.warn(
+          `[nim-rotator] Store at "${storePath}" has invalid keys format, using defaults`,
         );
-        return getDefaultStore();
-      }
-      const permError = checkFilePermissions(storePath);
-      if (permError) {
-        console.error(`[nim-rotator] SECURITY: ${permError}`);
-        console.error(
-          `[nim-rotator] Fix permissions: chmod 600 "${storePath}"`,
-        );
-        return getDefaultStore();
-      }
-      const raw = readFileSync(resolvedPath, "utf-8");
-      const data = JSON.parse(raw);
-      if (!data || typeof data !== "object" || !Array.isArray(data.keys)) {
-        console.warn("[nim-rotator] Store has invalid format, using defaults");
         return getDefaultStore();
       }
       return {
-        keys: Array.isArray(data.keys) ? data.keys : [],
-        currentIndex:
-          typeof data.currentIndex === "number" ? data.currentIndex : 0,
-        rotationStrategy:
-          data.rotationStrategy === "least-failures"
-            ? "least-failures"
-            : "round-robin",
-        updatedAt:
-          typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
-        lastUsedKeyId:
-          typeof data.lastUsedKeyId === "string"
-            ? data.lastUsedKeyId
-            : undefined,
+        ...getDefaultStore(),
+        ...data,
       };
     }
-  } catch {
-    console.error(
-      "[nim-rotator] Failed to load key store. Check file permissions and format.",
-    );
+  } catch (err) {
+    console.error(`[nim-rotator] Failed to load store at "${storePath}":`, err);
     console.warn(
       "[nim-rotator] Starting with a fresh store. Your existing keys are preserved on disk.",
     );
