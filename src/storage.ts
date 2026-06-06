@@ -342,12 +342,13 @@ export function readAndValidateImportFile(
       return { error: "Cannot read from system directories" };
     }
   }
-  const permError = checkFilePermissions(filePath);
-  if (permError) return { error: permError };
 
-  const raw = readSecureFile(filePath);
-  if (raw === null)
-    return { error: "Cannot read file or file has insecure permissions" };
+  let raw: string;
+  try {
+    raw = readFileSync(resolved, "utf-8");
+  } catch {
+    return { error: "Cannot read file" };
+  }
   return { raw };
 }
 
