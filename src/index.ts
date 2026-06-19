@@ -6,6 +6,7 @@ import {
   getNextKey,
   recordFailure,
   getActiveKeys,
+  getDefaultStore,
 } from "./storage.js";
 import type { KeyStore, KeyStoreConfig } from "./types.js";
 
@@ -20,25 +21,16 @@ function isValidStrategy(
 }
 
 function isRecoverableError(obj: unknown): boolean {
-  if (typeof obj === "object" && obj !== null) {
-    const rec = obj as Record<string, unknown>;
-    const name = rec.name;
-    if (name === "ProviderAuthError") return true;
-    if (name === "APIError") {
-      const data = rec.data as Record<string, unknown> | undefined;
-      const statusCode = data?.statusCode;
-      if (statusCode === 401 || statusCode === 403 || statusCode === 429)
-        return true;
-    }
+  if (typeof obj !== "object" || obj === null) return false;
+  const rec = obj as Record<string, unknown>;
+  if (rec.name === "ProviderAuthError") return true;
+  if (rec.name === "APIError") {
+    const data = rec.data as Record<string, unknown> | undefined;
+    const statusCode = data?.statusCode;
+    if (statusCode === 401 || statusCode === 403 || statusCode === 429)
+      return true;
   }
-  const msg = String(obj).toLowerCase();
-  return (
-    /\b401\b/.test(msg) ||
-    /\b403\b/.test(msg) ||
-    /\b429\b/.test(msg) ||
-    msg.includes("unauthorized") ||
-    msg.includes("rate limit")
-  );
+  return false;
 }
 
 export const NvidiaNimKeyRotator: Plugin = async (
@@ -52,7 +44,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       : "round-robin",
   };
 
-  const store = loadStore(config);
+  const store = loadStore(config) ?? getDefaultStore();
   const activeKeys = getActiveKeys(store, config);
 
   // Seed an env key if the store is empty
@@ -67,13 +59,36 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   }
 
+  const FALLBACK_TTL_MS = 60_000;
+  const pendingFallbacks = new Map<
+    string,
+    {
+      pendingFallbackModel?: string;
+      fallbackNotification?: string;
+      createdAt: number;
+    }
+  >();
+
+  const cleanupFallback = (sessionID: string) => {
+    const fb = pendingFallbacks.get(sessionID);
+    if (!fb) return;
+    if (!fb.pendingFallbackModel && !fb.fallbackNotification) {
+      pendingFallbacks.delete(sessionID);
+    }
+  };
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [sid, fb] of pendingFallbacks) {
+      if (now - fb.createdAt > FALLBACK_TTL_MS) {
+        pendingFallbacks.delete(sid);
+      }
+    }
+  }, 30_000).unref();
+
   const hooks: Hooks = {
     auth: {
       provider: PROVIDER_ID,
-      // We deliberately omit auth.loader. The fetch we used
-      // to return was never called by opencode; it only uses
-      // the apiKey string from the authorize step.  Rotation is
-      // handled in chat.headers instead.
       methods: [
         {
           type: "api",
@@ -100,14 +115,47 @@ export const NvidiaNimKeyRotator: Plugin = async (
         },
       ],
     },
-    // Rotate the API key on every outgoing request by mutating the
-    // Authorization header.  This is the hook that actually runs
-    // before each LLM call, unlike auth.loader which only runs once.
     "chat.headers": async (_input, _output) => {
       const next = getNextKey(store, config);
       if (next) {
         _output.headers["Authorization"] = `Bearer ${next.key.key}`;
         saveStore(store, config);
+      }
+    },
+    "chat.params": async (_input, output) => {
+      const fb = pendingFallbacks.get(_input.sessionID);
+      if (fb?.pendingFallbackModel) {
+        output.options = {
+          ...output.options,
+          model: fb.pendingFallbackModel,
+        };
+        fb.pendingFallbackModel = undefined;
+        cleanupFallback(_input.sessionID);
+      }
+    },
+    "chat.message": async (_input, output) => {
+      const fb = pendingFallbacks.get(_input.sessionID);
+      if (fb?.fallbackNotification) {
+        const msg = fb.fallbackNotification;
+        fb.fallbackNotification = undefined;
+        cleanupFallback(_input.sessionID);
+
+        try {
+          output.parts.unshift({
+            id: `fallback-${crypto.randomUUID()}`,
+            sessionID: _input.sessionID,
+            messageID: _input.messageID ?? "",
+            type: "text" as const,
+            text: `\n⚠️  ${msg}\n`,
+            synthetic: true,
+            ignored: true,
+          });
+        } catch (err) {
+          console.error(
+            "[nim-rotator] Failed to inject fallback notification:",
+            err,
+          );
+        }
       }
     },
     "shell.env": async (_input, output) => {
@@ -127,6 +175,35 @@ export const NvidiaNimKeyRotator: Plugin = async (
         if (isRecoverableError(error)) {
           if (store.lastUsedKeyId) {
             recordFailure(store, store.lastUsedKeyId);
+            saveStore(store, config);
+          }
+
+          if (store.fallbackChain.length > 0) {
+            const fallbackModel = store.fallbackChain.shift()!;
+            const msg = `Model fallback: switching to "${fallbackModel.name}" due to rate limit / auth error`;
+            console.log(`[nim-rotator] ${msg}`);
+
+            const sessionID =
+              ((props as Record<string, unknown> | undefined)?.sessionID as
+                | string
+                | undefined) ??
+              ((evt as Record<string, unknown>).sessionID as
+                | string
+                | undefined);
+
+            if (sessionID) {
+              pendingFallbacks.set(sessionID, {
+                pendingFallbackModel: fallbackModel.id,
+                fallbackNotification: msg,
+                createdAt: Date.now(),
+              });
+            } else {
+              console.warn(
+                "[nim-rotator] session.error received but sessionID could not be located",
+                evt,
+              );
+            }
+
             saveStore(store, config);
           }
         }

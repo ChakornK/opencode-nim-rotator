@@ -1,6 +1,6 @@
-import type { KeyStore } from "../types.js";
+import type { KeyStore, FallbackModel } from "../types.js";
 import type { ImportResult } from "../storage.js";
-import { loadStore } from "../storage.js";
+import { loadStore, getDefaultStore, saveStore } from "../storage.js";
 import { getActiveTheme } from "../themes.js";
 import type { Screen } from "./types.js";
 import type { CliRenderer } from "@opentui/core";
@@ -24,8 +24,18 @@ export const state: {
   isRendering: boolean;
   renderPending: boolean;
   renderer: CliRenderer | null;
+  activeTab: "keys" | "fallback";
+  fallbackChainIndex: number;
+  fallbackChainScrollOffset: number;
+  modelSelectorIndex: number;
+  modelSelectorScrollOffset: number;
+  modelSearchQuery: string;
+  availableModels: { id: string; name: string }[];
+  modelsLoaded: boolean;
+  benchmarkAbortController: AbortController | null;
+  benchmarkBatchSize: number;
 } = {
-  store: loadStore() as KeyStore,
+  store: loadStore() ?? getDefaultStore(),
   currentScreen: "list",
   deleteTargetId: null,
   renameTargetId: null,
@@ -43,6 +53,16 @@ export const state: {
   isRendering: false,
   renderPending: false,
   renderer: null,
+  activeTab: "keys",
+  fallbackChainIndex: 0,
+  fallbackChainScrollOffset: 0,
+  modelSelectorIndex: 0,
+  modelSelectorScrollOffset: 0,
+  modelSearchQuery: "",
+  availableModels: [],
+  modelsLoaded: false,
+  benchmarkAbortController: null,
+  benchmarkBatchSize: 1,
 };
 
 let navigateImpl: ((screen: Screen) => void) | null = null;
@@ -65,7 +85,10 @@ export function callRenderApp(): void {
 }
 
 export function refreshStore(): void {
-  state.store = loadStore() as KeyStore;
+  const fresh = loadStore();
+  if (fresh !== null) {
+    state.store = fresh;
+  }
 }
 
 export function setStatus(msg: string, color?: string): void {
@@ -73,6 +96,23 @@ export function setStatus(msg: string, color?: string): void {
   state.statusColor = color ?? getActiveTheme().textMuted;
 }
 
+export function safeSaveStore(): boolean {
+  try {
+    saveStore(state.store);
+    return true;
+  } catch (err) {
+    console.error("[nim-rotator] Save failed:", err);
+    setStatus(
+      "Save failed: " + (err instanceof Error ? err.message : "Unknown error"),
+      getActiveTheme().error,
+    );
+    callRenderApp();
+    return false;
+  }
+}
+
 export function clampIndex(index: number, length: number): number {
+  if (length <= 0) return 0;
+  if (index < 0) return 0;
   return index >= length ? Math.max(0, length - 1) : index;
 }

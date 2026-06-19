@@ -19,7 +19,6 @@ import {
   validateImportPayload,
   removeKey,
   renameKey,
-  saveStore,
 } from "../storage.js";
 import {
   state,
@@ -28,6 +27,7 @@ import {
   refreshStore,
   setStatus,
   clampIndex,
+  safeSaveStore,
 } from "./state.js";
 import {
   themedSelect,
@@ -42,6 +42,11 @@ import {
   handleKeyAction,
   handleExport,
   handleImportConfirm,
+  handleFallbackChainKey,
+  fetchNimModels,
+  addFallbackModel,
+  startBenchmark,
+  cancelBenchmark,
 } from "./actions.js";
 
 function keyStatus(entry: { enabled: boolean; failureCount: number }): string {
@@ -331,7 +336,7 @@ export function buildConfirmDelete(): ScreenContent {
         const e = state.store.keys.find((k) => k.id === state.deleteTargetId);
         const n = e?.name ?? "key";
         removeKey(state.store, state.deleteTargetId);
-        saveStore(state.store);
+        safeSaveStore();
         refreshStore();
         if (state.keySelectorIndex >= state.store.keys.length)
           state.keySelectorIndex = Math.max(0, state.store.keys.length - 1);
@@ -414,7 +419,7 @@ export function buildAddKeyInput(): ScreenContent {
       return;
     }
     addKey(state.store, state.pendingKeyName, key);
-    saveStore(state.store);
+    safeSaveStore();
     refreshStore();
     setStatus(`Added key "${state.pendingKeyName}"`, theme.success);
     state.pendingKeyName = "";
@@ -471,7 +476,7 @@ export function buildRenameInput(): ScreenContent {
       return;
     }
     renameKey(state.store, state.renameTargetId!, newName);
-    saveStore(state.store);
+    safeSaveStore();
     refreshStore();
     setStatus(`Renamed to "${newName}"`, theme.success);
     state.renameTargetId = null;
@@ -629,5 +634,312 @@ export function buildConfirmImport(): ScreenContent {
       confirm,
     ),
     helpText: "[Esc] cancel",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fallback Chain
+// ---------------------------------------------------------------------------
+
+const BRAILLE_SPINNER_FRAMES = [
+  "\u280B", // ⠋
+  "\u2819", // ⠙
+  "\u2839", // ⠹
+  "\u2838", // ⠸
+  "\u283C", // ⠼
+  "\u2834", // ⠴
+  "\u2826", // ⠦
+  "\u2827", // ⠧
+  "\u2807", // ⠇
+  "\u280F", // ⠏
+];
+
+function getBrailleSpinner(): string {
+  const frame = Math.floor(Date.now() / 80) % BRAILLE_SPINNER_FRAMES.length;
+  return BRAILLE_SPINNER_FRAMES[frame]!;
+}
+
+export function buildFallbackChain(): ScreenContent {
+  const theme = getActiveTheme();
+  const chain = state.store.fallbackChain;
+  const totalItems = chain.length + 1; // +1 for "Add model"
+
+  state.fallbackChainIndex = clampIndex(state.fallbackChainIndex, totalItems);
+
+  const viewportHeight = 12;
+  const listWidth = 64;
+
+  // Adjust scroll offset so the selected item is visible
+  if (state.fallbackChainIndex < state.fallbackChainScrollOffset) {
+    state.fallbackChainScrollOffset = state.fallbackChainIndex;
+  } else if (
+    state.fallbackChainIndex >=
+    state.fallbackChainScrollOffset + viewportHeight
+  ) {
+    state.fallbackChainScrollOffset =
+      state.fallbackChainIndex - viewportHeight + 1;
+  }
+
+  const items: any[] = [];
+  const startIdx = state.fallbackChainScrollOffset;
+  const endIdx = Math.min(startIdx + viewportHeight, chain.length);
+
+  for (let i = startIdx; i < endIdx; i++) {
+    const model = chain[i];
+    const isSelected = i === state.fallbackChainIndex;
+    const statusText =
+      model.benchmarkStatus === "running"
+        ? `${getBrailleSpinner()} benchmarking...`
+        : model.benchmarkStatus === "done"
+          ? `\u2713 ${model.benchmarkTtfb?.toFixed(0)}ms TTFB, ${model.benchmarkTps?.toFixed(1)} TPS`
+          : model.benchmarkStatus === "error"
+            ? `\u2717 ${model.benchmarkError}`
+            : "";
+
+    const prefix = isSelected ? "> " : "  ";
+    const nameWidth = listWidth - 4;
+    const displayName =
+      model.name.length > nameWidth
+        ? model.name.slice(0, nameWidth - 3) + "..."
+        : model.name;
+
+    items.push(
+      Box(
+        {
+          flexDirection: "row",
+          paddingX: 1,
+          backgroundColor: isSelected
+            ? theme.selectedBg
+            : theme.backgroundPanel,
+          width: listWidth,
+        },
+        Text({
+          content: `${prefix}${displayName}`,
+          fg: isSelected ? theme.selectedText : theme.text,
+          width: statusText ? nameWidth - statusText.length : nameWidth,
+        }),
+        statusText
+          ? Text({
+              content: statusText,
+              fg:
+                model.benchmarkStatus === "error"
+                  ? theme.error
+                  : theme.textMuted,
+            })
+          : Text({ content: "", fg: theme.backgroundPanel }),
+      ),
+    );
+  }
+
+  // "Add model" item at the end (only if visible in viewport)
+  const addModelIndex = chain.length;
+  const isAddVisible =
+    addModelIndex >= startIdx && addModelIndex < startIdx + viewportHeight;
+  if (isAddVisible) {
+    const isAddSelected = state.fallbackChainIndex === addModelIndex;
+    items.push(
+      Box(
+        {
+          flexDirection: "row",
+          paddingX: 1,
+          backgroundColor: isAddSelected
+            ? theme.selectedBg
+            : theme.backgroundPanel,
+          width: listWidth,
+        },
+        Text({
+          content: `${isAddSelected ? "> " : "  "}+ Add model`,
+          fg: isAddSelected ? theme.selectedText : theme.textMuted,
+        }),
+      ),
+    );
+  }
+
+  return {
+    element: Box(
+      { flexDirection: "column", gap: 0, width: listWidth },
+      Text({
+        content: " Fallback Chain (ordered):",
+        fg: theme.primary,
+      }),
+      ...items,
+    ),
+    helpText:
+      "[\u2191\u2193] move  [x] remove  [j/k] up/down  [a] add  [b] benchmark",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Model Selector
+// ---------------------------------------------------------------------------
+
+export function getFilteredModelsForSelector(): Array<{
+  id: string;
+  name: string;
+}> {
+  const addedIds = new Set(state.store.fallbackChain.map((m) => m.id));
+  const filteredModels = state.availableModels.filter(
+    (model) => !addedIds.has(model.id),
+  );
+  const searchQuery = state.modelSearchQuery.toLowerCase();
+  return searchQuery.length > 0
+    ? filteredModels.filter(
+        (model) =>
+          model.name.toLowerCase().includes(searchQuery) ||
+          model.id.toLowerCase().includes(searchQuery),
+      )
+    : filteredModels;
+}
+
+export function buildModelSelector(): ScreenContent {
+  const theme = getActiveTheme();
+
+  if (state.availableModels.length === 0 && !state.modelsLoaded) {
+    state.modelsLoaded = true;
+    fetchNimModels().then(() => {
+      if (state.availableModels.length === 0) {
+        setStatus("No models available", getActiveTheme().warning);
+      }
+      callRenderApp();
+    });
+
+    return {
+      element: Box(
+        { flexDirection: "column", gap: 1 },
+        Text({
+          content: "Loading models from NVIDIA NIM...",
+          fg: theme.textMuted,
+        }),
+      ),
+      helpText: "[Esc] cancel",
+    };
+  }
+
+  const searchFilteredModels = getFilteredModelsForSelector();
+
+  // Reset scroll when entering model selector or when search changes
+  if (state.modelSelectorScrollOffset < 0) {
+    state.modelSelectorScrollOffset = 0;
+  }
+
+  state.modelSelectorIndex = clampIndex(
+    state.modelSelectorIndex,
+    searchFilteredModels.length,
+  );
+
+  const searchDisplay =
+    state.modelSearchQuery.length > 0
+      ? Text({
+          content: `Search: ${state.modelSearchQuery}_`,
+          fg: theme.primary,
+        })
+      : Text({
+          content: "Type to search...",
+          fg: theme.textMuted,
+        });
+
+  const listWidth = 64;
+  const viewportHeight = 12;
+  const totalItems = searchFilteredModels.length;
+
+  // Adjust scroll offset so the selected item is visible
+  if (state.modelSelectorIndex < state.modelSelectorScrollOffset) {
+    state.modelSelectorScrollOffset = state.modelSelectorIndex;
+  } else if (
+    state.modelSelectorIndex >=
+    state.modelSelectorScrollOffset + viewportHeight
+  ) {
+    state.modelSelectorScrollOffset =
+      state.modelSelectorIndex - viewportHeight + 1;
+  }
+
+  const items: any[] = [];
+  const startIdx = state.modelSelectorScrollOffset;
+  const endIdx = Math.min(startIdx + viewportHeight, totalItems);
+
+  for (let i = startIdx; i < endIdx; i++) {
+    const model = searchFilteredModels[i];
+    const isSelected = i === state.modelSelectorIndex;
+    const prefix = isSelected ? "> " : "  ";
+
+    items.push(
+      Box(
+        {
+          flexDirection: "row",
+          paddingX: 1,
+          backgroundColor: isSelected
+            ? theme.selectedBg
+            : theme.backgroundPanel,
+          width: listWidth,
+        },
+        Text({
+          content: `${prefix}${model.name}`,
+          fg: isSelected ? theme.selectedText : theme.text,
+        }),
+      ),
+    );
+  }
+
+  if (totalItems === 0) {
+    items.push(
+      Box(
+        {
+          flexDirection: "row",
+          paddingX: 1,
+          backgroundColor: theme.backgroundPanel,
+          width: listWidth,
+        },
+        Text({
+          content: "  No matching models",
+          fg: theme.textMuted,
+        }),
+      ),
+    );
+  }
+
+  return {
+    element: Box(
+      { flexDirection: "column", gap: 0, width: listWidth },
+      Text({
+        content: " Select a model to add:",
+        fg: theme.primary,
+      }),
+      searchDisplay,
+      ...items,
+    ),
+    helpText: "[Esc] cancel  [Enter] select  [Type] search  [Backspace] clear",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarking
+// ---------------------------------------------------------------------------
+
+export function buildBenchmarking(): ScreenContent {
+  const theme = getActiveTheme();
+  const chain = state.store.fallbackChain;
+  const runningCount = chain.filter(
+    (m) => m.benchmarkStatus === "running",
+  ).length;
+  const doneCount = chain.filter((m) => m.benchmarkStatus === "done").length;
+  const errorCount = chain.filter((m) => m.benchmarkStatus === "error").length;
+
+  return {
+    element: Box(
+      { flexDirection: "column", gap: 1, alignItems: "center" },
+      Text({
+        content: "Benchmarking Models...",
+        fg: theme.primary,
+      }),
+      Text({
+        content: `Running: ${runningCount}  Done: ${doneCount}  Error: ${errorCount}`,
+        fg: theme.text,
+      }),
+      Text({
+        content: "Press [Esc] or [c] to cancel",
+        fg: theme.textMuted,
+      }),
+    ),
+    helpText: "[Esc] cancel  [c] cancel",
   };
 }

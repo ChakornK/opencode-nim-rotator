@@ -8,12 +8,22 @@ export interface ApiKeyEntry {
   enabled: boolean;
 }
 
+export interface FallbackModel {
+  id: string;
+  name: string;
+  benchmarkTtfb?: number;
+  benchmarkTps?: number;
+  benchmarkStatus?: "idle" | "running" | "done" | "error";
+  benchmarkError?: string;
+}
+
 export interface KeyStore {
   keys: ApiKeyEntry[];
   currentIndex: number;
   rotationStrategy: "round-robin" | "least-failures";
   updatedAt: number;
   lastUsedKeyId?: string;
+  fallbackChain: FallbackModel[];
 }
 
 export interface ExportedKey {

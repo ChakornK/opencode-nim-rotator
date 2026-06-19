@@ -30,13 +30,14 @@ const MAX_KEY_LENGTH = 256;
 const MAX_NAME_LENGTH = 128;
 const SYSTEM_PATH_PREFIXES = ["/etc/", "/proc/", "/sys/", "/dev/"];
 
-function getDefaultStore(): KeyStore {
+export function getDefaultStore(): KeyStore {
   return {
     keys: [],
     currentIndex: 0,
     rotationStrategy: "round-robin",
     updatedAt: Date.now(),
     lastUsedKeyId: undefined,
+    fallbackChain: [],
   };
 }
 
@@ -58,30 +59,45 @@ export function validateExportPath(filePath: string): string | null {
   return null;
 }
 
-export function loadStore(config?: KeyStoreConfig): KeyStore {
+export function loadStore(config?: KeyStoreConfig): KeyStore | null {
   const storePath = resolveStorePath(config);
   try {
     if (existsSync(storePath)) {
       const raw = readFileSync(storePath, "utf-8");
-      const data = JSON.parse(raw) as KeyStore;
-      if (!data.keys || !Array.isArray(data.keys)) {
+      const data = JSON.parse(raw);
+      if (typeof data !== "object" || data === null) {
         console.warn(
-          `[nim-rotator] Store at "${storePath}" has invalid keys format, using defaults`,
+          `[nim-rotator] Store at "${storePath}" is not a valid object`,
         );
-        return getDefaultStore();
+        return null;
+      }
+      const store = data as KeyStore;
+      if (!store.keys || !Array.isArray(store.keys)) {
+        console.warn(
+          `[nim-rotator] Store at "${storePath}" has invalid keys format`,
+        );
+        return null;
+      }
+      if (
+        typeof store.currentIndex !== "number" ||
+        !Number.isFinite(store.currentIndex) ||
+        store.currentIndex < 0 ||
+        !Number.isInteger(store.currentIndex)
+      ) {
+        store.currentIndex = 0;
       }
       return {
         ...getDefaultStore(),
-        ...data,
+        ...store,
+        fallbackChain: Array.isArray(store.fallbackChain)
+          ? store.fallbackChain
+          : [],
       };
     }
   } catch (err) {
     console.error(`[nim-rotator] Failed to load store at "${storePath}":`, err);
-    console.warn(
-      "[nim-rotator] Starting with a fresh store. Your existing keys are preserved on disk.",
-    );
   }
-  return getDefaultStore();
+  return null;
 }
 
 export function saveStore(store: KeyStore, config?: KeyStoreConfig): void {
@@ -91,7 +107,7 @@ export function saveStore(store: KeyStore, config?: KeyStoreConfig): void {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   store.updatedAt = Date.now();
-  const tmpPath = storePath + ".tmp." + process.pid;
+  const tmpPath = storePath + ".tmp." + crypto.randomUUID();
   try {
     writeFileSync(tmpPath, JSON.stringify(store, null, 2) + "\n", {
       mode: 0o600,
@@ -124,6 +140,9 @@ export function removeKey(store: KeyStore, id: string): void {
   if (store.currentIndex >= store.keys.length) {
     store.currentIndex = 0;
   }
+  if (store.lastUsedKeyId === id) {
+    store.lastUsedKeyId = undefined;
+  }
 }
 
 export function renameKey(store: KeyStore, id: string, newName: string): void {
@@ -141,10 +160,18 @@ export function toggleKey(
 }
 
 export function getMaxFailures(config?: KeyStoreConfig): number {
-  return (
-    config?.maxFailuresBeforeDisable ??
-    (Number(process.env.NIM_ROTATOR_MAX_FAILURES) || DEFAULT_MAX_FAILURES)
-  );
+  if (
+    typeof config?.maxFailuresBeforeDisable === "number" &&
+    config.maxFailuresBeforeDisable >= 0
+  ) {
+    return config.maxFailuresBeforeDisable;
+  }
+  const fromEnv = process.env.NIM_ROTATOR_MAX_FAILURES;
+  if (fromEnv !== undefined) {
+    const parsed = Number(fromEnv);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return DEFAULT_MAX_FAILURES;
 }
 
 export function getActiveKeys(
@@ -173,22 +200,18 @@ export function getNextKey(
       return (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0);
     });
     const best = sorted[0];
-    const idx = store.keys.indexOf(best);
-    store.currentIndex = idx;
+    const realIdx = store.keys.indexOf(best);
+    store.currentIndex = active.indexOf(best);
     store.lastUsedKeyId = best.id;
     best.lastUsedAt = Date.now();
-    return { key: best, index: idx };
+    return { key: best, index: realIdx };
   }
 
   // round-robin
   const idx = store.currentIndex % active.length;
   const selected = active[idx];
   const realIdx = store.keys.indexOf(selected);
-  if (store.currentIndex >= active.length) {
-    store.currentIndex = 0;
-  } else {
-    store.currentIndex = (idx + 1) % active.length;
-  }
+  store.currentIndex = (idx + 1) % active.length;
   store.lastUsedKeyId = selected.id;
   selected.lastUsedAt = Date.now();
   return { key: selected, index: realIdx };
@@ -196,7 +219,11 @@ export function getNextKey(
 
 export function recordFailure(store: KeyStore, keyId: string): void {
   const entry = store.keys.find((k) => k.id === keyId);
-  if (entry) entry.failureCount++;
+  if (!entry) return;
+  entry.failureCount++;
+  if (entry.failureCount >= getMaxFailures()) {
+    entry.enabled = false;
+  }
 }
 
 export function resetFailures(store: KeyStore, keyId?: string): void {

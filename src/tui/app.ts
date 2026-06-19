@@ -2,7 +2,7 @@ import { Box, Text } from "@opentui/core";
 import pkg from "../../package.json";
 import { getActiveKeys } from "../storage.js";
 import { getActiveTheme, setPreviewTheme } from "../themes.js";
-import { state, setNavigate, setRenderApp } from "./state.js";
+import { state, setNavigate, setRenderApp, callRenderApp } from "./state.js";
 import type { Screen } from "./types.js";
 import {
   buildMainMenu,
@@ -16,8 +16,12 @@ import {
   buildExportPathInput,
   buildImportPathInput,
   buildConfirmImport,
+  buildFallbackChain,
+  buildModelSelector,
+  getFilteredModelsForSelector,
 } from "./screens.js";
 import type { ScreenContent } from "./types.js";
+import { handleFallbackChainKey, addFallbackModel } from "./actions.js";
 
 export function initApp(): void {
   // Wire up navigation and render loop
@@ -32,7 +36,29 @@ export function initApp(): void {
   if (!state.renderer) return;
   state.renderer.keyInput.on(
     "keypress",
-    (key: { name: string; ctrl: boolean }) => {
+    (key: { name: string; ctrl: boolean; shift: boolean }) => {
+      if (key.name === "tab") {
+        state.activeTab = state.activeTab === "keys" ? "fallback" : "keys";
+        if (state.activeTab === "keys") {
+          navigateTo("list");
+        } else {
+          navigateTo("fallback-chain");
+        }
+        return;
+      }
+
+      if (key.name === "1") {
+        state.activeTab = "keys";
+        navigateTo("list");
+        return;
+      }
+
+      if (key.name === "2") {
+        state.activeTab = "fallback";
+        navigateTo("fallback-chain");
+        return;
+      }
+
       if (key.name === "escape") {
         switch (state.currentScreen) {
           case "list":
@@ -62,12 +88,72 @@ export function initApp(): void {
             state.pendingImportPath = "";
             state.pendingImportResult = null;
             return navigateTo("list");
+          case "fallback-chain":
+            return;
+          case "model-selector":
+            state.modelSearchQuery = "";
+            return navigateTo("fallback-chain");
         }
       }
 
       if (key.ctrl && key.name === "c") {
         if (state.renderer) state.renderer.destroy();
         process.exit(0);
+      }
+
+      // Fallback chain key handling
+      if (state.currentScreen === "fallback-chain") {
+        handleFallbackChainKey(key.name);
+        return;
+      }
+
+      // Model selector search handling
+      if (state.currentScreen === "model-selector") {
+        const filteredModels = getFilteredModelsForSelector();
+        if (key.name === "up") {
+          if (filteredModels.length === 0) return;
+          state.modelSelectorIndex = Math.max(0, state.modelSelectorIndex - 1);
+          callRenderApp();
+          return;
+        } else if (key.name === "down") {
+          if (filteredModels.length === 0) return;
+          state.modelSelectorIndex = Math.min(
+            filteredModels.length - 1,
+            state.modelSelectorIndex + 1,
+          );
+          callRenderApp();
+          return;
+        } else if (key.name === "return" || key.name === "enter") {
+          if (
+            state.modelSelectorIndex >= 0 &&
+            state.modelSelectorIndex < filteredModels.length
+          ) {
+            const model = filteredModels[state.modelSelectorIndex];
+            if (model) {
+              addFallbackModel(model.id, model.name);
+              state.modelSearchQuery = "";
+              navigateTo("fallback-chain");
+            }
+          }
+          return;
+        } else if (key.name === "backspace") {
+          state.modelSearchQuery = state.modelSearchQuery.slice(0, -1);
+          state.modelSelectorIndex = 0;
+          callRenderApp();
+          return;
+        } else if (key.name === "r" && state.modelSearchQuery === "") {
+          // Refresh model list (only when search is empty)
+          state.modelsLoaded = false;
+          state.availableModels = [];
+          callRenderApp();
+          return;
+        } else if (key.name && key.name.length === 1) {
+          // Single character key
+          state.modelSearchQuery += key.name;
+          state.modelSelectorIndex = 0;
+          callRenderApp();
+          return;
+        }
       }
     },
   );
@@ -130,8 +216,35 @@ function doRenderApp(): void {
         return buildImportPathInput();
       case "confirm-import":
         return buildConfirmImport();
+      case "fallback-chain":
+        return buildFallbackChain();
+      case "model-selector":
+        return buildModelSelector();
     }
   })();
+
+  const isKeysTab = state.activeTab === "keys";
+
+  const tabBar = Box(
+    { flexDirection: "row", gap: 1 },
+    Text({
+      content: "[1]",
+      fg: isKeysTab ? theme.primary : theme.textMuted,
+    }),
+    Text({
+      content: "API Key Rotation",
+      fg: isKeysTab ? theme.primary : theme.textMuted,
+    }),
+    Text({ content: " | ", fg: theme.textMuted }),
+    Text({
+      content: "[2]",
+      fg: !isKeysTab ? theme.primary : theme.textMuted,
+    }),
+    Text({
+      content: "Model Fallback Chain",
+      fg: !isKeysTab ? theme.primary : theme.textMuted,
+    }),
+  );
 
   const title = Box(
     { flexDirection: "row", gap: 2 },
@@ -158,6 +271,11 @@ function doRenderApp(): void {
       id: "active-count",
       content: `Active: ${getActiveKeys(state.store).length}`,
       fg: theme.success,
+    }),
+    Text({
+      id: "models-count",
+      content: `Models: ${state.store.fallbackChain.length}`,
+      fg: theme.textMuted,
     }),
     Text({
       id: "status-text",
@@ -194,6 +312,7 @@ function doRenderApp(): void {
           gap: 1,
           backgroundColor: theme.backgroundPanel,
         },
+        tabBar,
         title,
         status,
         content,

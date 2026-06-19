@@ -11,7 +11,9 @@ export type Screen =
   | "theme-selector"
   | "export-path"
   | "import-path"
-  | "confirm-import";
+  | "confirm-import"
+  | "fallback-chain"
+  | "model-selector";
 
 export interface SelectOption {
   name: string;
