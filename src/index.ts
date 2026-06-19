@@ -14,6 +14,8 @@ const PROVIDER_ID = "nvidia";
 const NIM_BASE_URL = "https://integrate.api.nvidia.com";
 const VALID_STRATEGIES = ["round-robin", "least-failures"] as const;
 
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+
 function isValidStrategy(
   val: unknown,
 ): val is KeyStoreConfig["rotationStrategy"] {
@@ -77,7 +79,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   };
 
-  setInterval(() => {
+  if (cleanupInterval) clearInterval(cleanupInterval);
+  cleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [sid, fb] of pendingFallbacks) {
       if (now - fb.createdAt > FALLBACK_TTL_MS) {
