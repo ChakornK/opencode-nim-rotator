@@ -366,6 +366,11 @@ export async function startBenchmark(): Promise<void> {
       benchmarkSpinnerInterval = null;
     }
     state.benchmarkAbortController = null;
+    // Reset any models still stuck in "running" state
+    for (const m of state.store.fallbackChain) {
+      if (m.benchmarkStatus === "running") m.benchmarkStatus = "idle";
+    }
+    safeSaveStore();
   }
 }
 
@@ -399,7 +404,7 @@ async function benchmarkModel(
         body: JSON.stringify({
           model: model.id,
           messages: [{ role: "user", content: "Hello" }],
-          max_tokens: 50,
+          max_tokens: 200,
           stream: true,
         }),
         signal: timeoutController.signal,
@@ -429,7 +434,7 @@ async function benchmarkModel(
         try {
           await reader?.cancel();
         } catch {}
-      }, 30000);
+      }, 15000);
     };
     startStreamTimeout();
 
