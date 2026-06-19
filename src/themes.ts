@@ -1,4 +1,10 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+} from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 
@@ -470,11 +476,13 @@ export function saveThemeOverride(themeId: string): void {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    writeFileSync(THEME_OVERRIDE_PATH, JSON.stringify(data, null, 2) + "\n", {
+    const tmpPath = THEME_OVERRIDE_PATH + ".tmp." + crypto.randomUUID();
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n", {
       mode: 0o600,
     });
+    renameSync(tmpPath, THEME_OVERRIDE_PATH);
   } catch (err) {
-    console.warn("[nim-rotator] Could not save theme preference");
+    console.warn("[nim-rotator] Could not save theme preference:", err);
   }
 }
 
