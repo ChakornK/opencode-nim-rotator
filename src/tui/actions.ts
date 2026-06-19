@@ -375,7 +375,8 @@ async function benchmarkModel(
 ): Promise<void> {
   const startTime = Date.now();
   const apiKey =
-    state.store.keys.find((k) => k.enabled)?.key || process.env.NVIDIA_API_KEY;
+    state.store.keys.find((k) => k.enabled && k.key)?.key ||
+    process.env.NVIDIA_API_KEY;
 
   if (!apiKey) {
     throw new Error("No API key available for benchmarking");
