@@ -164,8 +164,14 @@ export class BenchmarkRunner {
       },
       body: JSON.stringify({
         model: model.id,
-        messages: [{ role: "user", content: "Hello" }],
-        max_tokens: 200,
+        messages: [
+          {
+            role: "user",
+            content:
+              "Write a function that takes an array of integers and returns the two numbers that sum to a given target. Explain your approach.",
+          },
+        ],
+        max_tokens: 1024,
         stream: true,
       }),
       signal: combinedSignal,
