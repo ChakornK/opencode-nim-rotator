@@ -144,7 +144,7 @@ export function buildKeySelector(): ScreenContent {
 
   const selector = themedSelect(
     "key-selector",
-    64,
+    56,
     12,
     options,
     state.keySelectorIndex,
@@ -771,7 +771,7 @@ export function buildFallbackChain(): ScreenContent {
   state.fallbackChainIndex = clampIndex(state.fallbackChainIndex, totalItems);
 
   const viewportHeight = 12;
-  const listWidth = 64;
+  const listWidth = 56;
 
   // Adjust scroll offset so the selected item is visible
   if (state.fallbackChainIndex < state.fallbackChainScrollOffset) {
@@ -971,7 +971,7 @@ export function buildModelSelector(): ScreenContent {
           fg: theme.textMuted,
         });
 
-  const listWidth = 64;
+  const listWidth = 56;
   const viewportHeight = 12;
   const totalItems = searchFilteredModels.length;
 
