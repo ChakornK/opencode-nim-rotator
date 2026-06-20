@@ -199,18 +199,9 @@ export function handleFallbackChainKey(keyName: string): void {
     }
     case "a": {
       // Add new model below current item
-      if (state.fallbackChainIndex >= chain.length) {
-        // At "Add model" position, just add at end
-        state.modelSelectorIndex = 0;
-        state.modelSelectorScrollOffset = 0;
-        navigate("model-selector");
-      } else {
-        // Insert below current
-        state.modelSelectorIndex = 0;
-        state.modelSelectorScrollOffset = 0;
-        // We'll insert after the current index when they select a model
-        navigate("model-selector");
-      }
+      state.modelSelectorIndex = 0;
+      state.modelSelectorScrollOffset = 0;
+      navigate("model-selector");
       break;
     }
     case "b": {
@@ -266,6 +257,7 @@ export function addFallbackModel(id: string, name: string): void {
       `Model "${name}" (${id}) is already in the fallback chain`,
       getActiveTheme().warning,
     );
+    callRenderApp();
     return;
   }
 
@@ -295,13 +287,24 @@ let benchmarkSpinnerInterval: ReturnType<typeof setInterval> | null = null;
 
 export async function startBenchmark(): Promise<void> {
   const chain = state.store.fallbackChain;
-  for (const m of chain) {
-    if (m.benchmarkStatus === "error") m.benchmarkStatus = "idle";
-  }
-  const modelsToBenchmark = chain.filter((m) => m.benchmarkStatus === "idle");
+  const idx = state.fallbackChainIndex;
 
-  if (modelsToBenchmark.length === 0) {
-    setStatus("No models to benchmark", getActiveTheme().warning);
+  if (idx >= chain.length) {
+    setStatus("No model selected to benchmark", getActiveTheme().warning);
+    return;
+  }
+
+  const model = chain[idx];
+  // Allow re-benchmarking of done or error models
+  if (model.benchmarkStatus === "done" || model.benchmarkStatus === "error") {
+    model.benchmarkStatus = "idle";
+    delete model.benchmarkTps;
+    delete model.benchmarkTtfb;
+    delete model.benchmarkError;
+  }
+
+  if (model.benchmarkStatus !== "idle") {
+    setStatus("Selected model already benchmarked", getActiveTheme().warning);
     return;
   }
 
@@ -310,8 +313,13 @@ export async function startBenchmark(): Promise<void> {
     clearInterval(benchmarkSpinnerInterval);
     benchmarkSpinnerInterval = null;
   }
+  // Abort any in-flight benchmark
+  if (state.benchmarkAbortController) {
+    state.benchmarkAbortController.abort();
+  }
 
   state.benchmarkAbortController = new AbortController();
+  const localController = state.benchmarkAbortController;
 
   // Start spinner animation interval (runs on fallback-chain screen)
   benchmarkSpinnerInterval = setInterval(() => {
@@ -320,45 +328,24 @@ export async function startBenchmark(): Promise<void> {
     }
   }, 80);
 
-  const batchSize = state.benchmarkBatchSize;
-  const batches: (typeof modelsToBenchmark)[] = [];
-  for (let i = 0; i < modelsToBenchmark.length; i += batchSize) {
-    batches.push(modelsToBenchmark.slice(i, i + batchSize));
-  }
-
   try {
-    for (const batch of batches) {
-      if (state.benchmarkAbortController.signal.aborted) break;
+    model.benchmarkStatus = "running";
+    callRenderApp();
 
-      await Promise.all(
-        batch.map(async (model) => {
-          if (state.benchmarkAbortController?.signal.aborted) return;
-
-          model.benchmarkStatus = "running";
-          callRenderApp();
-
-          try {
-            await benchmarkModel(model, state.benchmarkAbortController!.signal);
-            model.benchmarkStatus = "done";
-          } catch (err) {
-            if (state.benchmarkAbortController?.signal.aborted) {
-              model.benchmarkStatus = "idle";
-            } else {
-              model.benchmarkStatus = "error";
-              model.benchmarkError =
-                err instanceof Error ? err.message : "Benchmark failed";
-            }
-          }
-
-          callRenderApp();
-        }),
-      );
-
-      callRenderApp();
-      safeSaveStore();
-      callRenderApp();
+    try {
+      await benchmarkModel(model, localController.signal);
+      model.benchmarkStatus = "done";
+    } catch (err) {
+      if (localController.signal.aborted) {
+        model.benchmarkStatus = "idle";
+      } else {
+        model.benchmarkStatus = "error";
+        model.benchmarkError =
+          err instanceof Error ? err.message : "Benchmark failed";
+      }
     }
 
+    callRenderApp();
     safeSaveStore();
     callRenderApp();
   } finally {
@@ -367,7 +354,10 @@ export async function startBenchmark(): Promise<void> {
       clearInterval(benchmarkSpinnerInterval);
       benchmarkSpinnerInterval = null;
     }
-    state.benchmarkAbortController = null;
+    // Only null the controller if it's still ours
+    if (state.benchmarkAbortController === localController) {
+      state.benchmarkAbortController = null;
+    }
     // Reset any models still stuck in "running" state
     for (const m of state.store.fallbackChain) {
       if (m.benchmarkStatus === "running") m.benchmarkStatus = "idle";
