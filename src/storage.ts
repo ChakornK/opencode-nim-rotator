@@ -107,9 +107,27 @@ export function saveStore(store: KeyStore, config?: KeyStoreConfig): void {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   store.updatedAt = Date.now();
+
+  let merged = store;
+  try {
+    if (existsSync(storePath)) {
+      const diskRaw = readFileSync(storePath, "utf-8");
+      const diskData = JSON.parse(diskRaw);
+      if (typeof diskData === "object" && diskData !== null) {
+        const disk = diskData as Record<string, unknown>;
+        const mem = store as unknown as Record<string, unknown>;
+        for (const key of Object.keys(disk)) {
+          if (!(key in mem)) {
+            (merged as unknown as Record<string, unknown>)[key] = disk[key];
+          }
+        }
+      }
+    }
+  } catch {}
+
   const tmpPath = storePath + ".tmp." + crypto.randomUUID();
   try {
-    writeFileSync(tmpPath, JSON.stringify(store, null, 2) + "\n", {
+    writeFileSync(tmpPath, JSON.stringify(merged, null, 2) + "\n", {
       mode: 0o600,
     });
     renameSync(tmpPath, storePath);
