@@ -434,7 +434,7 @@ async function benchmarkModel(
         try {
           await reader?.cancel();
         } catch {}
-      }, 15000);
+      }, 30000);
     };
     startStreamTimeout();
 
