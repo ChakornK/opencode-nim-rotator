@@ -7,6 +7,8 @@ import {
   recordFailure,
   getActiveKeys,
   getDefaultStore,
+  recordRateLimit,
+  resetRateLimit,
 } from "./storage.js";
 import type { KeyStore, KeyStoreConfig, FallbackModel } from "./types.js";
 
@@ -26,6 +28,7 @@ interface SessionState {
   lastUserMessageID: string | undefined;
   timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   activeChainKey: string | undefined;
+  rateLimitCount: number;
 }
 
 function isValidStrategy(
@@ -106,6 +109,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
       store.fallbackChain = Array.isArray(fresh.fallbackChain)
         ? fresh.fallbackChain
         : [];
+      store.maxRateLimitFailures =
+        typeof fresh.maxRateLimitFailures === "number" &&
+        Number.isFinite(fresh.maxRateLimitFailures) &&
+        fresh.maxRateLimitFailures >= 1
+          ? fresh.maxRateLimitFailures
+          : getDefaultStore().maxRateLimitFailures;
     }
   };
 
@@ -144,6 +153,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       lastUserMessageID: undefined,
       timeoutHandle: undefined,
       activeChainKey: undefined,
+      rateLimitCount: 0,
     };
     sessions.set(sessionID, next);
     return next;
@@ -327,9 +337,13 @@ export const NvidiaNimKeyRotator: Plugin = async (
     },
     "chat.headers": async (_input, _output) => {
       reloadFromDisk();
+      const prevKeyId = store.lastUsedKeyId;
       const next = getNextKey(store, config);
       if (next) {
         _output.headers["Authorization"] = `Bearer ${next.key.key}`;
+        if (prevKeyId && prevKeyId !== next.key.id) {
+          resetRateLimit(store, prevKeyId);
+        }
         saveStore(store, config);
       }
     },
@@ -413,6 +427,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
           reloadFromDisk();
           if (store.lastUsedKeyId) {
             recordFailure(store, store.lastUsedKeyId);
+            recordRateLimit(store, store.lastUsedKeyId);
           }
           saveStore(store, config);
         }
@@ -427,7 +442,19 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
         if (!shouldRetryForError(error, state)) {
           state.timeoutTriggered = false;
+          if (!is429Error(error)) {
+            state.rateLimitCount = 0;
+          }
           return;
+        }
+
+        if (is429Error(error)) {
+          state.rateLimitCount++;
+          if (state.rateLimitCount < store.maxRateLimitFailures) {
+            return;
+          }
+        } else {
+          state.rateLimitCount = 0;
         }
 
         const retried = await triggerRetry(sessionID, state);

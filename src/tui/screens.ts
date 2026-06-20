@@ -43,6 +43,7 @@ import {
   handleExport,
   handleImportConfirm,
   handleFallbackChainKey,
+  handleFallbackMenuSelect,
   fetchNimModels,
   addFallbackModel,
 } from "./actions.js";
@@ -130,7 +131,7 @@ export function buildMainMenu(): ScreenContent {
 export function buildKeySelector(): ScreenContent {
   const options: SelectOption[] = state.store.keys.map((entry) => ({
     name: `${entry.name} [${keyStatus(entry)}]`,
-    description: `${maskKey(entry.key)} fails:${entry.failureCount} ${entry.lastUsedAt ? new Date(entry.lastUsedAt).toLocaleString() : "never used"}`,
+    description: `${maskKey(entry.key)} fails:${entry.failureCount} rl:${entry.rateLimitCount} ${entry.lastUsedAt ? new Date(entry.lastUsedAt).toLocaleString() : "never used"}`,
     value: entry.id,
   }));
 
@@ -632,6 +633,111 @@ export function buildConfirmImport(): ScreenContent {
       confirm,
     ),
     helpText: "[Esc] cancel",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fallback Menu
+// ---------------------------------------------------------------------------
+
+export function buildFallbackMenu(): ScreenContent {
+  const theme = getActiveTheme();
+  const chain = state.store.fallbackChain;
+
+  const opts: (SelectOption | false)[] = [
+    {
+      name: "Edit Fallback Chain",
+      description: `Manage the model fallback order (${chain.length} models)`,
+      value: "edit-chain",
+    },
+    {
+      name: `Rate Limit Threshold: ${state.store.maxRateLimitFailures}`,
+      description: "Number of rate limits before fallback activates",
+      value: "settings",
+    },
+  ];
+  const options = opts.filter(Boolean) as SelectOption[];
+
+  state.fallbackSettingsIndex = clampIndex(
+    state.fallbackSettingsIndex,
+    options.length,
+  );
+
+  const menu = themedSelect(
+    "fallback-menu",
+    56,
+    8,
+    options,
+    state.fallbackSettingsIndex,
+    (idx, opt) => {
+      state.fallbackSettingsIndex = idx;
+      handleFallbackMenuSelect(opt.value);
+    },
+  );
+
+  return { element: menu, helpText: "[Tab] switch tabs  [Ctrl+C] quit" };
+}
+
+// ---------------------------------------------------------------------------
+// Fallback Settings
+// ---------------------------------------------------------------------------
+
+export function buildFallbackSettings(): ScreenContent {
+  const theme = getActiveTheme();
+  const current = state.store.maxRateLimitFailures;
+
+  const options: SelectOption[] = [
+    {
+      name: `Current: ${current}`,
+      description: `Fallback activates after ${current} consecutive rate limit${current === 1 ? "" : "s"}`,
+      value: "current",
+    },
+    {
+      name: "+1",
+      description: `Increase threshold to ${current + 1}`,
+      value: "inc",
+    },
+    {
+      name: "-1",
+      description: `Decrease threshold to ${Math.max(1, current - 1)}`,
+      value: "dec",
+    },
+    { name: "Back", description: "Return to fallback menu", value: "back" },
+  ];
+
+  const selector = themedSelect(
+    "fallback-settings",
+    56,
+    8,
+    options,
+    0,
+    (_idx, opt) => {
+      if (opt.value === "inc") {
+        state.store.maxRateLimitFailures = current + 1;
+        safeSaveStore();
+        refreshStore();
+        callRenderApp();
+      } else if (opt.value === "dec") {
+        state.store.maxRateLimitFailures = Math.max(1, current - 1);
+        safeSaveStore();
+        refreshStore();
+        callRenderApp();
+      } else if (opt.value === "back") {
+        navigate("fallback-menu");
+      }
+    },
+  );
+
+  return {
+    element: Box(
+      { flexDirection: "column", gap: 1 },
+      Text({
+        content: " Fallback Settings:",
+        fg: theme.primary,
+      }),
+      selector,
+    ),
+    helpText: "[Esc] back",
   };
 }
 

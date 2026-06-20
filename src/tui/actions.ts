@@ -140,6 +140,19 @@ export function handleImportConfirm(value: string): void {
 // Fallback Chain Actions
 // ---------------------------------------------------------------------------
 
+export function handleFallbackMenuSelect(value: string): void {
+  switch (value) {
+    case "edit-chain":
+      state.fallbackChainIndex = 0;
+      state.fallbackChainScrollOffset = 0;
+      navigate("fallback-chain");
+      break;
+    case "settings":
+      navigate("fallback-settings");
+      break;
+  }
+}
+
 export function handleFallbackChainKey(keyName: string): void {
   const chain = state.store.fallbackChain;
   const totalItems = chain.length + 1;

@@ -38,6 +38,7 @@ export function getDefaultStore(): KeyStore {
     updatedAt: Date.now(),
     lastUsedKeyId: undefined,
     fallbackChain: [],
+    maxRateLimitFailures: 3,
   };
 }
 
@@ -89,9 +90,22 @@ export function loadStore(config?: KeyStoreConfig): KeyStore | null {
       return {
         ...getDefaultStore(),
         ...store,
+        keys: Array.isArray(store.keys)
+          ? store.keys.map((k) => ({
+              ...k,
+              rateLimitCount:
+                typeof k.rateLimitCount === "number" ? k.rateLimitCount : 0,
+            }))
+          : [],
         fallbackChain: Array.isArray(store.fallbackChain)
           ? store.fallbackChain
           : [],
+        maxRateLimitFailures:
+          typeof store.maxRateLimitFailures === "number" &&
+          Number.isFinite(store.maxRateLimitFailures) &&
+          store.maxRateLimitFailures >= 1
+            ? store.maxRateLimitFailures
+            : getDefaultStore().maxRateLimitFailures,
       };
     }
   } catch (err) {
@@ -146,6 +160,7 @@ export function addKey(store: KeyStore, name: string, key: string): void {
     key,
     createdAt: Date.now(),
     failureCount: 0,
+    rateLimitCount: 0,
     enabled: true,
   };
   store.keys.push(entry);
@@ -247,10 +262,27 @@ export function recordFailure(store: KeyStore, keyId: string): void {
 export function resetFailures(store: KeyStore, keyId?: string): void {
   if (keyId) {
     const entry = store.keys.find((k) => k.id === keyId);
-    if (entry) entry.failureCount = 0;
+    if (entry) {
+      entry.failureCount = 0;
+      entry.rateLimitCount = 0;
+    }
   } else {
-    for (const k of store.keys) k.failureCount = 0;
+    for (const k of store.keys) {
+      k.failureCount = 0;
+      k.rateLimitCount = 0;
+    }
   }
+}
+
+export function recordRateLimit(store: KeyStore, keyId: string): void {
+  const entry = store.keys.find((k) => k.id === keyId);
+  if (!entry) return;
+  entry.rateLimitCount++;
+}
+
+export function resetRateLimit(store: KeyStore, keyId: string): void {
+  const entry = store.keys.find((k) => k.id === keyId);
+  if (entry) entry.rateLimitCount = 0;
 }
 
 export function exportKeys(store: KeyStore): ExportPayload {

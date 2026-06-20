@@ -16,7 +16,9 @@ import {
   buildExportPathInput,
   buildImportPathInput,
   buildConfirmImport,
+  buildFallbackMenu,
   buildFallbackChain,
+  buildFallbackSettings,
   buildModelSelector,
   getFilteredModelsForSelector,
 } from "./screens.js";
@@ -46,7 +48,7 @@ export function initApp(): void {
         if (state.activeTab === "keys") {
           navigateTo("list");
         } else {
-          navigateTo("fallback-chain");
+          navigateTo("fallback-menu");
         }
         return;
       }
@@ -59,7 +61,7 @@ export function initApp(): void {
 
       if (key.name === "2") {
         state.activeTab = "fallback";
-        navigateTo("fallback-chain");
+        navigateTo("fallback-menu");
         return;
       }
 
@@ -92,9 +94,13 @@ export function initApp(): void {
             state.pendingImportPath = "";
             state.pendingImportResult = null;
             return navigateTo("list");
+          case "fallback-menu":
+            return navigateTo("list");
           case "fallback-chain":
             cancelBenchmark();
-            return;
+            return navigateTo("fallback-menu");
+          case "fallback-settings":
+            return navigateTo("fallback-menu");
           case "model-selector":
             state.modelSearchQuery = "";
             return navigateTo("fallback-chain");
@@ -223,6 +229,10 @@ function doRenderApp(): void {
         return buildConfirmImport();
       case "fallback-chain":
         return buildFallbackChain();
+      case "fallback-menu":
+        return buildFallbackMenu();
+      case "fallback-settings":
+        return buildFallbackSettings();
       case "model-selector":
         return buildModelSelector();
     }
@@ -280,6 +290,11 @@ function doRenderApp(): void {
     Text({
       id: "models-count",
       content: `Models: ${state.store.fallbackChain.length}`,
+      fg: theme.textMuted,
+    }),
+    Text({
+      id: "rl-threshold",
+      content: `RL: ${state.store.maxRateLimitFailures}`,
       fg: theme.textMuted,
     }),
     Text({

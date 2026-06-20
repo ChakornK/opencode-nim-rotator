@@ -5,6 +5,7 @@ export interface ApiKeyEntry {
   createdAt: number;
   lastUsedAt?: number;
   failureCount: number;
+  rateLimitCount: number;
   enabled: boolean;
 }
 
@@ -24,6 +25,7 @@ export interface KeyStore {
   updatedAt: number;
   lastUsedKeyId?: string;
   fallbackChain: FallbackModel[];
+  maxRateLimitFailures: number;
 }
 
 export interface ExportedKey {

@@ -12,7 +12,9 @@ export type Screen =
   | "export-path"
   | "import-path"
   | "confirm-import"
+  | "fallback-menu"
   | "fallback-chain"
+  | "fallback-settings"
   | "model-selector";
 
 export interface SelectOption {

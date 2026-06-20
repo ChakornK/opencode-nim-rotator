@@ -27,6 +27,7 @@ export const state: {
   activeTab: "keys" | "fallback";
   fallbackChainIndex: number;
   fallbackChainScrollOffset: number;
+  fallbackSettingsIndex: number;
   modelSelectorIndex: number;
   modelSelectorScrollOffset: number;
   modelSearchQuery: string;
@@ -55,6 +56,7 @@ export const state: {
   activeTab: "keys",
   fallbackChainIndex: 0,
   fallbackChainScrollOffset: 0,
+  fallbackSettingsIndex: 0,
   modelSelectorIndex: 0,
   modelSelectorScrollOffset: 0,
   modelSearchQuery: "",
