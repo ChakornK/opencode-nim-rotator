@@ -7,6 +7,7 @@ const STREAM_CHUNK_TIMEOUT_MS = 30_000;
 const TPS_MIN_TOKENS = 8;
 const TPS_UPDATE_INTERVAL_MS = 2_000;
 const SPINNER_INTERVAL_MS = 80;
+const CHARS_PER_TOKEN = 4;
 
 export interface BenchmarkMetrics {
   ttfb: number | undefined;
@@ -204,10 +205,11 @@ export class BenchmarkRunner {
       releaseLock(): void;
     },
     gen: number,
-    firstByteTime: number,
+    ttfbTime: number,
   ): Promise<void> {
-    const streamStart = firstByteTime;
+    let streamStart = 0;
     let lastTpsUpdate = 0;
+    let charCount = 0;
     let buffer = "";
     const decoder = new TextDecoder();
     let chunkTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -259,23 +261,35 @@ export class BenchmarkRunner {
             if (data === "[DONE]") continue;
             try {
               const parsed = JSON.parse(data);
-              if (parsed?.choices?.[0]?.delta?.content) {
-                this._metrics.tokenCount++;
+              const content = parsed?.choices?.[0]?.delta?.content;
+              if (content) {
+                charCount += content.length;
+                if (streamStart === 0) {
+                  streamStart = ttfbTime;
+                }
               }
             } catch {}
           }
         }
 
-        if (this._metrics.tokenCount >= TPS_MIN_TOKENS && lastTpsUpdate === 0) {
+        if (charCount === 0) continue;
+
+        const estimatedTokens = Math.max(
+          1,
+          Math.round(charCount / CHARS_PER_TOKEN),
+        );
+        this._metrics.tokenCount = estimatedTokens;
+
+        if (estimatedTokens >= TPS_MIN_TOKENS && lastTpsUpdate === 0) {
           const elapsed = Math.max(1, Date.now() - streamStart);
-          this._metrics.tps = (this._metrics.tokenCount / elapsed) * 1000;
+          this._metrics.tps = (estimatedTokens / elapsed) * 1000;
           lastTpsUpdate = Date.now();
           callRenderApp();
         } else if (lastTpsUpdate > 0) {
           const now = Date.now();
           if (now - lastTpsUpdate >= TPS_UPDATE_INTERVAL_MS) {
             const elapsed = Math.max(1, now - streamStart);
-            this._metrics.tps = (this._metrics.tokenCount / elapsed) * 1000;
+            this._metrics.tps = (estimatedTokens / elapsed) * 1000;
             lastTpsUpdate = now;
             callRenderApp();
           }
@@ -288,8 +302,12 @@ export class BenchmarkRunner {
       } catch {}
     }
 
-    const streamDuration = Math.max(1, Date.now() - streamStart);
-    this._metrics.tps = (this._metrics.tokenCount / streamDuration) * 1000;
+    if (charCount > 0 && streamStart > 0) {
+      const finalTokens = Math.max(1, Math.round(charCount / CHARS_PER_TOKEN));
+      this._metrics.tokenCount = finalTokens;
+      const streamDuration = Math.max(1, Date.now() - streamStart);
+      this._metrics.tps = (finalTokens / streamDuration) * 1000;
+    }
   }
 
   private startSpinner(): void {
