@@ -8,13 +8,25 @@ import {
   getActiveKeys,
   getDefaultStore,
 } from "./storage.js";
-import type { KeyStore, KeyStoreConfig } from "./types.js";
+import type { KeyStore, KeyStoreConfig, FallbackModel } from "./types.js";
 
 const PROVIDER_ID = "nvidia";
 const NIM_BASE_URL = "https://integrate.api.nvidia.com";
 const VALID_STRATEGIES = ["round-robin", "least-failures"] as const;
+const FALLBACK_TIMEOUT_MS = 60_000;
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+interface SessionState {
+  attemptIndex: number;
+  timeoutTriggered: boolean;
+  inRetry: boolean;
+  pendingRetryIndex: number | undefined;
+  lastUserMessageID: string | undefined;
+  timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  activeChainKey: string | undefined;
+}
 
 function isValidStrategy(
   val: unknown,
@@ -22,23 +34,55 @@ function isValidStrategy(
   return val === "round-robin" || val === "least-failures";
 }
 
-function isRecoverableError(obj: unknown): boolean {
-  if (typeof obj !== "object" || obj === null) return false;
-  const rec = obj as Record<string, unknown>;
-  if (rec.name === "ProviderAuthError") return true;
+function shouldRetryForError(error: unknown, state: SessionState): boolean {
+  if (!error || typeof error !== "object") return false;
+  const rec = error as Record<string, unknown>;
+
+  if (rec.name === "MessageAbortedError") {
+    if (state.timeoutTriggered) return true;
+    const msg =
+      typeof (rec.data as Record<string, unknown>)?.message === "string"
+        ? ((rec.data as Record<string, unknown>).message as string)
+        : "";
+    return /time\s*out|timed\s*out|timeout/i.test(msg);
+  }
+
   if (rec.name === "APIError") {
     const data = rec.data as Record<string, unknown> | undefined;
+    if (data?.isRetryable) return true;
     const statusCode = data?.statusCode;
-    if (statusCode === 401 || statusCode === 403 || statusCode === 429)
+    if (
+      typeof statusCode === "number" &&
+      RETRYABLE_STATUS_CODES.has(statusCode)
+    )
       return true;
+    return false;
   }
-  return false;
+
+  if (rec.name === "ProviderAuthError") return false;
+
+  return true;
+}
+
+function modelKey(model: { providerID: string; modelID: string }): string {
+  return `${model.providerID}/${model.modelID}`;
+}
+
+function findChainIndex(
+  chain: FallbackModel[],
+  model: { providerID: string; modelID: string } | undefined,
+): number {
+  if (!model) return -1;
+  return chain.findIndex(
+    (entry) => entry.id === model.modelID || entry.name === model.modelID,
+  );
 }
 
 export const NvidiaNimKeyRotator: Plugin = async (
   input: PluginInput,
   options?: Record<string, unknown>,
 ) => {
+  const client = input.client;
   const config: KeyStoreConfig = {
     storePath: options?.storePath as string | undefined,
     rotationStrategy: isValidStrategy(options?.rotationStrategy)
@@ -48,6 +92,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const store = loadStore(config) ?? getDefaultStore();
   if (!Array.isArray(store.fallbackChain)) store.fallbackChain = [];
+
+  const sessions = new Map<string, SessionState>();
 
   const reloadFromDisk = () => {
     const fresh = loadStore(config);
@@ -76,33 +122,168 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   }
 
-  const FALLBACK_TTL_MS = 60_000;
-  const pendingFallbacks = new Map<
-    string,
-    {
-      pendingFallbackModel?: string;
-      fallbackNotification?: string;
-      createdAt: number;
-    }
-  >();
+  const showToast = async (
+    variant: "success" | "info" | "warning" | "error",
+    message: string,
+  ) => {
+    try {
+      await client.tui?.showToast?.({
+        body: { title: "Model Fallback", message, variant },
+      });
+    } catch {}
+  };
 
-  const cleanupFallback = (sessionID: string) => {
-    const fb = pendingFallbacks.get(sessionID);
-    if (!fb) return;
-    if (!fb.pendingFallbackModel && !fb.fallbackNotification) {
-      pendingFallbacks.delete(sessionID);
+  const getState = (sessionID: string): SessionState => {
+    const existing = sessions.get(sessionID);
+    if (existing) return existing;
+    const next: SessionState = {
+      attemptIndex: 0,
+      timeoutTriggered: false,
+      inRetry: false,
+      pendingRetryIndex: undefined,
+      lastUserMessageID: undefined,
+      timeoutHandle: undefined,
+      activeChainKey: undefined,
+    };
+    sessions.set(sessionID, next);
+    return next;
+  };
+
+  const clearScheduledTimeout = (state: SessionState) => {
+    if (state.timeoutHandle) {
+      clearTimeout(state.timeoutHandle);
+      state.timeoutHandle = undefined;
+    }
+  };
+
+  const scheduleTimeout = (
+    sessionID: string,
+    messageID: string,
+    state: SessionState,
+  ) => {
+    clearScheduledTimeout(state);
+    state.timeoutTriggered = false;
+    state.timeoutHandle = setTimeout(() => {
+      if (state.lastUserMessageID !== messageID) return;
+      state.timeoutTriggered = true;
+      void client.session.abort({ path: { id: sessionID } });
+    }, FALLBACK_TIMEOUT_MS);
+  };
+
+  const cleanupSession = (sessionID: string) => {
+    const state = sessions.get(sessionID);
+    if (state) {
+      clearScheduledTimeout(state);
+      sessions.delete(sessionID);
+    }
+  };
+
+  const triggerRetry = async (
+    sessionID: string,
+    state: SessionState,
+  ): Promise<boolean> => {
+    const chain = store.fallbackChain;
+    if (chain.length < 2) return false;
+
+    const nextIndex = (state.attemptIndex + 1) % chain.length;
+    state.inRetry = true;
+    state.pendingRetryIndex = nextIndex;
+
+    try {
+      const source = chain[state.attemptIndex];
+      const target = chain[nextIndex];
+      if (!source || !target) return false;
+
+      await showToast(
+        "warning",
+        `${source.name} failed, retrying with ${target.name}...`,
+      );
+
+      const messagesResult = await client.session.messages({
+        path: { id: sessionID },
+      });
+      const entries =
+        messagesResult && "data" in messagesResult
+          ? messagesResult.data
+          : messagesResult;
+      if (!Array.isArray(entries)) return false;
+
+      const userMessages = (entries as Array<Record<string, unknown>>).filter(
+        (entry) => (entry?.info as Record<string, unknown>)?.role === "user",
+      );
+      if (userMessages.length === 0) return false;
+
+      const lastUser = userMessages[userMessages.length - 1] as Record<
+        string,
+        unknown
+      >;
+      const lastUserInfo = lastUser.info as Record<string, unknown>;
+      const lastUserParts = lastUser.parts as Array<Record<string, unknown>>;
+
+      if (
+        state.lastUserMessageID &&
+        (lastUserInfo?.id as string) !== state.lastUserMessageID
+      ) {
+        return false;
+      }
+
+      const promptParts: Array<{
+        type: "text";
+        id: string;
+        text: string;
+        synthetic?: boolean;
+        ignored?: boolean;
+      }> = [];
+      if (Array.isArray(lastUserParts)) {
+        for (const part of lastUserParts) {
+          if (part?.type === "text") {
+            promptParts.push({
+              type: "text",
+              id: part.id as string,
+              text: part.text as string,
+              synthetic: part.synthetic as boolean | undefined,
+              ignored: part.ignored as boolean | undefined,
+            });
+          }
+        }
+      }
+
+      await client.session.prompt({
+        path: { id: sessionID },
+        body: {
+          messageID: lastUserInfo?.id as string,
+          agent: lastUserInfo?.agent as string,
+          model: {
+            providerID: PROVIDER_ID,
+            modelID: target.id,
+          },
+          parts: promptParts,
+        },
+      });
+
+      return true;
+    } catch {
+      state.pendingRetryIndex = undefined;
+      return false;
+    } finally {
+      state.inRetry = false;
     }
   };
 
   if (cleanupInterval) clearInterval(cleanupInterval);
   cleanupInterval = setInterval(() => {
     const now = Date.now();
-    for (const [sid, fb] of pendingFallbacks) {
-      if (now - fb.createdAt > FALLBACK_TTL_MS) {
-        pendingFallbacks.delete(sid);
+    for (const [sid, state] of sessions) {
+      if (state.timeoutHandle && !state.inRetry) {
+        // stale sessions
       }
     }
-  }, 30_000).unref();
+  }, 30_000);
+  if (cleanupInterval && typeof cleanupInterval === "object") {
+    try {
+      (cleanupInterval as ReturnType<typeof setTimeout>).unref?.();
+    } catch {}
+  }
 
   const hooks: Hooks = {
     auth: {
@@ -141,41 +322,60 @@ export const NvidiaNimKeyRotator: Plugin = async (
         saveStore(store, config);
       }
     },
-    "chat.params": async (_input, output) => {
-      const fb = pendingFallbacks.get(_input.sessionID);
-      if (fb?.pendingFallbackModel) {
-        output.options = {
-          ...output.options,
-          model: fb.pendingFallbackModel,
-        };
-        fb.pendingFallbackModel = undefined;
-        cleanupFallback(_input.sessionID);
-      }
-    },
-    "chat.message": async (_input, output) => {
-      const fb = pendingFallbacks.get(_input.sessionID);
-      if (fb?.fallbackNotification) {
-        const msg = fb.fallbackNotification;
-        fb.fallbackNotification = undefined;
-        cleanupFallback(_input.sessionID);
+    "chat.message": async (input, output) => {
+      const chain = store.fallbackChain;
+      if (chain.length === 0) return;
 
-        try {
-          output.parts.unshift({
-            id: `fallback-${crypto.randomUUID()}`,
-            sessionID: _input.sessionID,
-            messageID: _input.messageID ?? "",
-            type: "text" as const,
-            text: `\n⚠️  ${msg}\n`,
-            synthetic: true,
-            ignored: true,
-          });
-        } catch (err) {
-          console.error(
-            "[nim-rotator] Failed to inject fallback notification:",
-            err,
-          );
+      const sessionID = input.sessionID;
+      const state = getState(sessionID);
+      const requestedModel = output.message.model ?? input.model;
+
+      let activeChainKey = state.activeChainKey;
+      let activeChainKeyStr = activeChainKey;
+
+      if (!activeChainKeyStr || state.pendingRetryIndex === undefined) {
+        if (!requestedModel) {
+          cleanupSession(sessionID);
+          return;
         }
+        activeChainKeyStr = modelKey(requestedModel);
       }
+
+      // Find if the requested model is in our fallback chain
+      const chainIndex = findChainIndex(chain, requestedModel);
+      if (chainIndex < 0 && state.pendingRetryIndex === undefined) {
+        cleanupSession(sessionID);
+        return;
+      }
+
+      const desiredIndex =
+        state.pendingRetryIndex ?? (chainIndex >= 0 ? chainIndex : 0);
+      const target = chain[desiredIndex];
+      if (!target) {
+        cleanupSession(sessionID);
+        return;
+      }
+
+      // Override the model in the output message
+      output.message.model = {
+        providerID: PROVIDER_ID,
+        modelID: target.id,
+      };
+
+      state.activeChainKey = activeChainKeyStr;
+      state.attemptIndex = desiredIndex;
+      state.pendingRetryIndex = undefined;
+      state.lastUserMessageID = output.message.id;
+
+      // Don't timeout the last model in the chain
+      const isLastModel = desiredIndex === chain.length - 1;
+      if (isLastModel) {
+        clearScheduledTimeout(state);
+        state.timeoutTriggered = false;
+        return;
+      }
+
+      scheduleTimeout(sessionID, output.message.id, state);
     },
     "shell.env": async (_input, output) => {
       if (output.env.NVIDIA_API_KEY !== undefined) {
@@ -192,42 +392,88 @@ export const NvidiaNimKeyRotator: Plugin = async (
         const evt = event as Record<string, unknown>;
         const props = evt.properties as Record<string, unknown> | undefined;
         const error = evt.error ?? props?.error;
-        if (isRecoverableError(error)) {
-          reloadFromDisk();
+        const sessionID =
+          ((props as Record<string, unknown> | undefined)?.sessionID as
+            | string
+            | undefined) ??
+          ((evt as Record<string, unknown>).sessionID as string | undefined);
 
-          if (store.lastUsedKeyId) {
-            recordFailure(store, store.lastUsedKeyId);
-          }
+        if (!sessionID) return;
 
-          if (store.fallbackChain.length > 0) {
-            const fallbackModel = store.fallbackChain.shift()!;
-            const msg = `Model fallback: switching to "${fallbackModel.name}" due to rate limit / auth error`;
-            console.log(`[nim-rotator] ${msg}`);
+        const state = sessions.get(sessionID);
+        if (!state) return;
+        if (state.inRetry) return;
 
-            const sessionID =
-              ((props as Record<string, unknown> | undefined)?.sessionID as
-                | string
-                | undefined) ??
-              ((evt as Record<string, unknown>).sessionID as
-                | string
-                | undefined);
+        clearScheduledTimeout(state);
 
-            if (sessionID) {
-              pendingFallbacks.set(sessionID, {
-                pendingFallbackModel: fallbackModel.id,
-                fallbackNotification: msg,
-                createdAt: Date.now(),
-              });
-            } else {
-              console.warn(
-                "[nim-rotator] session.error received but sessionID could not be located",
-                evt,
-              );
-            }
-          }
-
-          saveStore(store, config);
+        if (!shouldRetryForError(error, state)) {
+          state.timeoutTriggered = false;
+          return;
         }
+
+        reloadFromDisk();
+
+        if (store.lastUsedKeyId) {
+          recordFailure(store, store.lastUsedKeyId);
+        }
+
+        const retried = await triggerRetry(sessionID, state);
+        if (!retried) {
+          cleanupSession(sessionID);
+        }
+
+        saveStore(store, config);
+        return;
+      }
+
+      if (
+        event.type === "session.status" &&
+        (
+          (event.properties as Record<string, unknown>)?.status as Record<
+            string,
+            unknown
+          >
+        )?.type === "idle"
+      ) {
+        const sessionID = (event.properties as Record<string, unknown>)
+          .sessionID as string;
+        if (!sessionID) return;
+
+        const state = sessions.get(sessionID);
+        if (!state) return;
+
+        clearScheduledTimeout(state);
+
+        if (state.inRetry) return;
+        if (state.pendingRetryIndex !== undefined) return;
+
+        if (state.timeoutTriggered) {
+          reloadFromDisk();
+          const retried = await triggerRetry(sessionID, state);
+          if (!retried) {
+            cleanupSession(sessionID);
+          }
+          saveStore(store, config);
+          return;
+        }
+
+        cleanupSession(sessionID);
+      }
+
+      if (event.type === "session.idle") {
+        const sessionID = (event.properties as Record<string, unknown>)
+          ?.sessionID as string;
+        if (sessionID) cleanupSession(sessionID);
+      }
+
+      if (event.type === "session.deleted") {
+        const sessionID = (
+          (event.properties as Record<string, unknown>)?.info as Record<
+            string,
+            unknown
+          >
+        )?.id as string;
+        if (sessionID) cleanupSession(sessionID);
       }
     },
   };
