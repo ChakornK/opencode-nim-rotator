@@ -354,7 +354,9 @@ export async function startBenchmark(): Promise<void> {
         }),
       );
 
+      callRenderApp();
       safeSaveStore();
+      callRenderApp();
     }
 
     safeSaveStore();
