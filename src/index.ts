@@ -285,6 +285,17 @@ export const NvidiaNimKeyRotator: Plugin = async (
     } catch {}
   }
 
+  const is429Error = (error: unknown): boolean => {
+    if (!error || typeof error !== "object") return false;
+    const rec = error as Record<string, unknown>;
+    if (rec.name === "APIError") {
+      const data = rec.data as Record<string, unknown> | undefined;
+      const statusCode = data?.statusCode;
+      return statusCode === 429 || data?.isRetryable === true;
+    }
+    return false;
+  };
+
   const hooks: Hooks = {
     auth: {
       provider: PROVIDER_ID,
@@ -398,6 +409,14 @@ export const NvidiaNimKeyRotator: Plugin = async (
             | undefined) ??
           ((evt as Record<string, unknown>).sessionID as string | undefined);
 
+        if (is429Error(error)) {
+          reloadFromDisk();
+          if (store.lastUsedKeyId) {
+            recordFailure(store, store.lastUsedKeyId);
+          }
+          saveStore(store, config);
+        }
+
         if (!sessionID) return;
 
         const state = sessions.get(sessionID);
@@ -411,18 +430,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
           return;
         }
 
-        reloadFromDisk();
-
-        if (store.lastUsedKeyId) {
-          recordFailure(store, store.lastUsedKeyId);
-        }
-
         const retried = await triggerRetry(sessionID, state);
         if (!retried) {
           cleanupSession(sessionID);
         }
 
-        saveStore(store, config);
         return;
       }
 
