@@ -21,7 +21,11 @@ import {
   getFilteredModelsForSelector,
 } from "./screens.js";
 import type { ScreenContent } from "./types.js";
-import { handleFallbackChainKey, addFallbackModel } from "./actions.js";
+import {
+  handleFallbackChainKey,
+  addFallbackModel,
+  cancelBenchmark,
+} from "./actions.js";
 
 export function initApp(): void {
   // Wire up navigation and render loop
@@ -89,6 +93,7 @@ export function initApp(): void {
             state.pendingImportResult = null;
             return navigateTo("list");
           case "fallback-chain":
+            cancelBenchmark();
             return;
           case "model-selector":
             state.modelSearchQuery = "";

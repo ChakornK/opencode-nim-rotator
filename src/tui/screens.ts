@@ -45,8 +45,6 @@ import {
   handleFallbackChainKey,
   fetchNimModels,
   addFallbackModel,
-  startBenchmark,
-  cancelBenchmark,
 } from "./actions.js";
 
 function keyStatus(entry: { enabled: boolean; failureCount: number }): string {
@@ -687,14 +685,35 @@ export function buildFallbackChain(): ScreenContent {
   for (let i = startIdx; i < endIdx; i++) {
     const model = chain[i];
     const isSelected = i === state.fallbackChainIndex;
-    const statusText =
-      model.benchmarkStatus === "running"
-        ? `${getBrailleSpinner()} benchmarking...`
-        : model.benchmarkStatus === "done"
-          ? `\u2713 ${model.benchmarkTtfb?.toFixed(0)}ms TTFB, ${model.benchmarkTps?.toFixed(1)} TPS`
-          : model.benchmarkStatus === "error"
-            ? `\u2717 ${model.benchmarkError}`
-            : "";
+    const isActivelyBenchmarking =
+      model.benchmarkStatus === "running" &&
+      state.benchmarkRunner?.modelId === model.id;
+
+    let statusText: string;
+    let statusIsError = false;
+
+    if (isActivelyBenchmarking) {
+      const m = state.benchmarkRunner!.metrics;
+      const phase = state.benchmarkRunner!.phase;
+      if (phase === "connecting") {
+        statusText = `${getBrailleSpinner()} connecting...`;
+      } else if (phase === "streaming") {
+        const ttfb = m.ttfb != null ? `${m.ttfb.toFixed(0)}ms` : "...";
+        const tps = m.tps != null ? `${m.tps.toFixed(1)}` : "...";
+        statusText = `${getBrailleSpinner()} ${ttfb} TTFB, ${tps} TPS`;
+      } else {
+        statusText = `${getBrailleSpinner()} benchmarking...`;
+      }
+    } else if (model.benchmarkStatus === "running") {
+      statusText = `${getBrailleSpinner()} benchmarking...`;
+    } else if (model.benchmarkStatus === "done") {
+      statusText = `\u2713 ${model.benchmarkTtfb?.toFixed(0)}ms TTFB, ${model.benchmarkTps?.toFixed(1)} TPS`;
+    } else if (model.benchmarkStatus === "error") {
+      statusText = `\u2717 ${model.benchmarkError}`;
+      statusIsError = true;
+    } else {
+      statusText = "";
+    }
 
     const prefix = isSelected ? "> " : "  ";
     const nameWidth = listWidth - 4;
@@ -721,10 +740,7 @@ export function buildFallbackChain(): ScreenContent {
         statusText
           ? Text({
               content: statusText,
-              fg:
-                model.benchmarkStatus === "error"
-                  ? theme.error
-                  : theme.textMuted,
+              fg: statusIsError ? theme.error : theme.textMuted,
             })
           : Text({ content: "", fg: theme.backgroundPanel }),
       ),
@@ -765,7 +781,7 @@ export function buildFallbackChain(): ScreenContent {
       ...items,
     ),
     helpText:
-      "[\u2191\u2193] move  [x] remove  [j/k] up/down  [a] add  [b] benchmark",
+      "[\u2191\u2193] move  [x] remove  [j/k] up/down  [a] add  [b] benchmark  [c] cancel",
   };
 }
 
@@ -908,38 +924,5 @@ export function buildModelSelector(): ScreenContent {
       ...items,
     ),
     helpText: "[Esc] cancel  [Enter] select  [Type] search  [Backspace] clear",
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Benchmarking
-// ---------------------------------------------------------------------------
-
-export function buildBenchmarking(): ScreenContent {
-  const theme = getActiveTheme();
-  const chain = state.store.fallbackChain;
-  const runningCount = chain.filter(
-    (m) => m.benchmarkStatus === "running",
-  ).length;
-  const doneCount = chain.filter((m) => m.benchmarkStatus === "done").length;
-  const errorCount = chain.filter((m) => m.benchmarkStatus === "error").length;
-
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1, alignItems: "center" },
-      Text({
-        content: "Benchmarking Models...",
-        fg: theme.primary,
-      }),
-      Text({
-        content: `Running: ${runningCount}  Done: ${doneCount}  Error: ${errorCount}`,
-        fg: theme.text,
-      }),
-      Text({
-        content: "Press [Esc] or [c] to cancel",
-        fg: theme.textMuted,
-      }),
-    ),
-    helpText: "[Esc] cancel  [c] cancel",
   };
 }

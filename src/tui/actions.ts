@@ -1,5 +1,4 @@
 import { getActiveTheme, setPreviewTheme } from "../themes.js";
-import type { FallbackModel } from "../types.js";
 import {
   exportKeys,
   applyImport,
@@ -15,6 +14,7 @@ import {
   refreshStore,
   setStatus,
 } from "./state.js";
+import { BenchmarkRunner } from "./benchmark.js";
 
 export function handleKeyAction(action: string): void {
   if (!state.selectedKeyId) return;
@@ -205,8 +205,11 @@ export function handleFallbackChainKey(keyName: string): void {
       break;
     }
     case "b": {
-      // Benchmark all models
       startBenchmark();
+      break;
+    }
+    case "c": {
+      cancelBenchmark();
       break;
     }
     case "return":
@@ -283,8 +286,6 @@ export function addFallbackModel(id: string, name: string): void {
 // Benchmarking
 // ---------------------------------------------------------------------------
 
-let benchmarkSpinnerInterval: ReturnType<typeof setInterval> | null = null;
-
 export async function startBenchmark(): Promise<void> {
   const chain = state.store.fallbackChain;
   const idx = state.fallbackChainIndex;
@@ -295,224 +296,67 @@ export async function startBenchmark(): Promise<void> {
   }
 
   const model = chain[idx];
-  // Allow re-benchmarking of done or error models
-  if (model.benchmarkStatus === "done" || model.benchmarkStatus === "error") {
-    model.benchmarkStatus = "idle";
-    delete model.benchmarkTps;
-    delete model.benchmarkTtfb;
-    delete model.benchmarkError;
-  }
-
-  if (model.benchmarkStatus !== "idle") {
-    setStatus("Selected model already benchmarked", getActiveTheme().warning);
-    return;
-  }
-
-  // Clear any leftover spinner from a previous run before starting a new one
-  if (benchmarkSpinnerInterval) {
-    clearInterval(benchmarkSpinnerInterval);
-    benchmarkSpinnerInterval = null;
-  }
-  // Abort any in-flight benchmark
-  if (state.benchmarkAbortController) {
-    state.benchmarkAbortController.abort();
-  }
-
-  state.benchmarkAbortController = new AbortController();
-  const localController = state.benchmarkAbortController;
-
-  // Start spinner animation interval (runs on fallback-chain screen)
-  benchmarkSpinnerInterval = setInterval(() => {
-    if (state.currentScreen === "fallback-chain") {
-      callRenderApp();
-    }
-  }, 80);
-
-  try {
-    model.benchmarkStatus = "running";
-    callRenderApp();
-
-    try {
-      await benchmarkModel(model, localController.signal);
-      model.benchmarkStatus = "done";
-    } catch (err) {
-      if (localController.signal.aborted) {
-        model.benchmarkStatus = "idle";
-      } else {
-        model.benchmarkStatus = "error";
-        model.benchmarkError =
-          err instanceof Error ? err.message : "Benchmark failed";
-      }
-    }
-
-    callRenderApp();
-    safeSaveStore();
-    callRenderApp();
-  } finally {
-    // Always clear the spinner interval, even on exceptions
-    if (benchmarkSpinnerInterval) {
-      clearInterval(benchmarkSpinnerInterval);
-      benchmarkSpinnerInterval = null;
-    }
-    // Only null the controller if it's still ours
-    if (state.benchmarkAbortController === localController) {
-      state.benchmarkAbortController = null;
-    }
-    // Reset any models still stuck in "running" state
-    for (const m of state.store.fallbackChain) {
-      if (m.benchmarkStatus === "running") m.benchmarkStatus = "idle";
-    }
-    safeSaveStore();
-  }
-}
-
-async function benchmarkModel(
-  model: FallbackModel,
-  signal: AbortSignal,
-): Promise<void> {
-  const startTime = Date.now();
   const apiKey =
     state.store.keys.find((k) => k.enabled && k.key)?.key ||
     process.env.NVIDIA_API_KEY;
 
   if (!apiKey) {
-    throw new Error("No API key available for benchmarking");
+    setStatus("No API key available for benchmarking", getActiveTheme().error);
+    return;
   }
 
-  const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), 30000);
-  const onAbort = () => timeoutController.abort();
-  signal.addEventListener("abort", onAbort);
+  // Cancel any in-flight benchmark before starting a new one
+  if (state.benchmarkRunner) {
+    const oldRunner = state.benchmarkRunner;
+    state.benchmarkRunner = null;
+    oldRunner.cancel();
 
-  try {
-    const res = await fetch(
-      "https://integrate.api.nvidia.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model.id,
-          messages: [{ role: "user", content: "Hello" }],
-          max_tokens: 200,
-          stream: true,
-        }),
-        signal: timeoutController.signal,
-      },
-    );
+    for (const m of state.store.fallbackChain) {
+      if (m.benchmarkStatus === "running") {
+        m.benchmarkStatus = "idle";
+        delete m.benchmarkTps;
+        delete m.benchmarkTtfb;
+        delete m.benchmarkError;
+      }
+    }
+  }
 
-    // TTFB: time from start to first byte received
-    model.benchmarkTtfb = Date.now() - startTime;
+  // Reset selected model to idle for fresh benchmark
+  model.benchmarkStatus = "idle";
+  delete model.benchmarkTps;
+  delete model.benchmarkTtfb;
+  delete model.benchmarkError;
+
+  const runner = new BenchmarkRunner();
+  state.benchmarkRunner = runner;
+  model.benchmarkStatus = "running";
+  callRenderApp();
+
+  await runner.run(model, apiKey);
+
+  if (state.benchmarkRunner === runner) {
+    state.benchmarkRunner = null;
+    runner.applyResultToModel(model);
+    safeSaveStore();
     callRenderApp();
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
-    const reader = res.body?.getReader();
-    if (!reader) {
-      throw new Error("Response body is empty");
-    }
-    let tokenCount = 0;
-    const streamStart = Date.now();
-    let lastTpsUpdate = streamStart;
-    let buffer = "";
-
-    let streamTimeoutId: ReturnType<typeof setTimeout> | null = null;
-    const startStreamTimeout = () => {
-      streamTimeoutId = setTimeout(async () => {
-        try {
-          await reader?.cancel();
-        } catch {}
-      }, 30000);
-    };
-    startStreamTimeout();
-
-    const decoder = new TextDecoder();
-
-    try {
-      while (true) {
-        let readResult: { done: boolean; value?: Uint8Array };
-        try {
-          readResult = await reader.read();
-        } catch (e) {
-          if (
-            e instanceof Error &&
-            (e.name === "AbortError" || e.name === "CanceledError")
-          ) {
-            throw new Error("Stream timeout");
-          }
-          throw e;
-        }
-
-        const { done, value } = readResult;
-        if (done) {
-          if (streamTimeoutId) {
-            clearTimeout(streamTimeoutId);
-            streamTimeoutId = null;
-          }
-          break;
-        }
-
-        if (streamTimeoutId) {
-          clearTimeout(streamTimeoutId);
-        }
-        startStreamTimeout();
-
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data: ")) continue;
-            const data = trimmed.slice(6);
-            if (data === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed?.choices?.[0]?.delta?.content;
-              if (content) {
-                tokenCount++;
-              }
-            } catch {}
-          }
-        }
-
-        const now = Date.now();
-        if (now - lastTpsUpdate >= 500) {
-          const elapsed = Math.max(1, now - streamStart);
-          model.benchmarkTps = (tokenCount / elapsed) * 1000;
-          lastTpsUpdate = now;
-          callRenderApp();
-        }
-      }
-    } finally {
-      if (streamTimeoutId) {
-        clearTimeout(streamTimeoutId);
-        streamTimeoutId = null;
-      }
-      try {
-        reader.releaseLock();
-      } catch {}
-    }
-
-    // Final TPS after stream ends
-    const streamDuration = Math.max(1, Date.now() - streamStart);
-    model.benchmarkTps = (tokenCount / streamDuration) * 1000;
-  } finally {
-    clearTimeout(timeoutId);
-    signal.removeEventListener("abort", onAbort);
   }
 }
 
 export function cancelBenchmark(): void {
-  const c = state.benchmarkAbortController;
-  if (c) c.abort();
-  if (benchmarkSpinnerInterval) {
-    clearInterval(benchmarkSpinnerInterval);
-    benchmarkSpinnerInterval = null;
+  if (state.benchmarkRunner) {
+    state.benchmarkRunner.cancel();
+    state.benchmarkRunner = null;
+
+    for (const m of state.store.fallbackChain) {
+      if (m.benchmarkStatus === "running") {
+        m.benchmarkStatus = "idle";
+        delete m.benchmarkTps;
+        delete m.benchmarkTtfb;
+        delete m.benchmarkError;
+      }
+    }
+
+    safeSaveStore();
+    callRenderApp();
   }
 }
