@@ -708,7 +708,17 @@ export function buildFallbackChain(): ScreenContent {
     } else if (model.benchmarkStatus === "running") {
       statusText = `${getBrailleSpinner()} benchmarking...`;
     } else if (model.benchmarkStatus === "done") {
-      statusText = `\u2713 ${model.benchmarkTtfb?.toFixed(0)}ms TTFB, ${model.benchmarkTps?.toFixed(1)} TPS`;
+      const ttfbStr =
+        model.benchmarkTtfb != null && Number.isFinite(model.benchmarkTtfb)
+          ? `${model.benchmarkTtfb.toFixed(0)}ms`
+          : "?ms";
+      const tpsStr =
+        model.benchmarkTps != null &&
+        Number.isFinite(model.benchmarkTps) &&
+        model.benchmarkTps > 0
+          ? `${model.benchmarkTps.toFixed(1)}`
+          : "?";
+      statusText = `\u2713 ${ttfbStr} TTFB, ${tpsStr} TPS`;
     } else if (model.benchmarkStatus === "error") {
       statusText = `\u2717 ${model.benchmarkError}`;
       statusIsError = true;

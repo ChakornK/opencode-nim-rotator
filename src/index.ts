@@ -47,29 +47,31 @@ export const NvidiaNimKeyRotator: Plugin = async (
   };
 
   const store = loadStore(config) ?? getDefaultStore();
+  if (!Array.isArray(store.fallbackChain)) store.fallbackChain = [];
 
-  const syncStore = () => {
+  const reloadFromDisk = () => {
     const fresh = loadStore(config);
     if (fresh !== null) {
-      Object.assign(store, fresh);
-      if (!Array.isArray(store.fallbackChain)) store.fallbackChain = [];
+      store.keys = fresh.keys;
+      store.currentIndex = fresh.currentIndex;
+      store.rotationStrategy = fresh.rotationStrategy;
+      store.updatedAt = fresh.updatedAt;
+      store.lastUsedKeyId = fresh.lastUsedKeyId;
+      store.fallbackChain = Array.isArray(fresh.fallbackChain)
+        ? fresh.fallbackChain
+        : [];
     }
   };
 
-  const syncSave = () => {
-    syncStore();
-    syncSave();
-  };
   const activeKeys = getActiveKeys(store, config);
 
-  // Seed an env key if the store is empty
   if (activeKeys.length === 0) {
     const envKey = process.env.NVIDIA_API_KEY;
     if (envKey) {
       const existing = store.keys.find((k) => k.name === "env-default");
       if (!existing) {
         addKey(store, "env-default", envKey);
-        syncSave();
+        saveStore(store, config);
       }
     }
   }
@@ -132,10 +134,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
       ],
     },
     "chat.headers": async (_input, _output) => {
+      reloadFromDisk();
       const next = getNextKey(store, config);
       if (next) {
         _output.headers["Authorization"] = `Bearer ${next.key.key}`;
-        syncSave();
+        saveStore(store, config);
       }
     },
     "chat.params": async (_input, output) => {
@@ -176,10 +179,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
     },
     "shell.env": async (_input, output) => {
       if (output.env.NVIDIA_API_KEY !== undefined) {
+        reloadFromDisk();
         const next = getNextKey(store, config);
         if (next) {
           output.env.NVIDIA_API_KEY = next.key.key;
-          syncSave();
+          saveStore(store, config);
         }
       }
     },
@@ -189,9 +193,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
         const props = evt.properties as Record<string, unknown> | undefined;
         const error = evt.error ?? props?.error;
         if (isRecoverableError(error)) {
+          reloadFromDisk();
+
           if (store.lastUsedKeyId) {
             recordFailure(store, store.lastUsedKeyId);
-            syncSave();
           }
 
           if (store.fallbackChain.length > 0) {
@@ -219,9 +224,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
                 evt,
               );
             }
-
-            syncSave();
           }
+
+          saveStore(store, config);
         }
       }
     },

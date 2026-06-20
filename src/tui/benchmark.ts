@@ -41,6 +41,16 @@ export class BenchmarkRunner {
   private _error: string | undefined;
   private _modelId: string | undefined;
   private _cancelled = false;
+  private lastGoodTps: number | undefined;
+
+  private setTps(value: number | undefined): void {
+    if (value != null && Number.isFinite(value) && value >= 0) {
+      this._metrics.tps = value;
+      this.lastGoodTps = value;
+    } else if (this.lastGoodTps != null) {
+      this._metrics.tps = this.lastGoodTps;
+    }
+  }
 
   get phase(): BenchmarkPhase {
     return this._phase;
@@ -126,8 +136,20 @@ export class BenchmarkRunner {
   applyResultToModel(model: FallbackModel): void {
     if (this._phase === "done") {
       model.benchmarkStatus = "done";
-      model.benchmarkTtfb = this._metrics.ttfb;
-      model.benchmarkTps = this._metrics.tps;
+      model.benchmarkTtfb =
+        this._metrics.ttfb != null && Number.isFinite(this._metrics.ttfb)
+          ? this._metrics.ttfb
+          : undefined;
+      model.benchmarkTps =
+        this._metrics.tps != null &&
+        Number.isFinite(this._metrics.tps) &&
+        this._metrics.tps > 0
+          ? this._metrics.tps
+          : undefined;
+      if (model.benchmarkTps == null) {
+        model.benchmarkStatus = "error";
+        model.benchmarkError = "TPS calculation failed";
+      }
     } else if (this._phase === "error") {
       model.benchmarkStatus = "error";
       model.benchmarkError = this._error;
@@ -281,19 +303,18 @@ export class BenchmarkRunner {
         );
         this._metrics.tokenCount = estimatedTokens;
 
+        const now = Date.now();
+        const elapsed = Math.max(1, now - streamStart);
+        const calculatedTps = (estimatedTokens / elapsed) * 1000;
+
         if (lastTpsUpdate === 0) {
-          const elapsed = Math.max(1, Date.now() - streamStart);
-          this._metrics.tps = (estimatedTokens / elapsed) * 1000;
-          lastTpsUpdate = Date.now();
+          this.setTps(calculatedTps);
+          lastTpsUpdate = now;
           callRenderApp();
-        } else {
-          const now = Date.now();
-          if (now - lastTpsUpdate >= TPS_UPDATE_INTERVAL_MS) {
-            const elapsed = Math.max(1, now - streamStart);
-            this._metrics.tps = (estimatedTokens / elapsed) * 1000;
-            lastTpsUpdate = now;
-            callRenderApp();
-          }
+        } else if (now - lastTpsUpdate >= TPS_UPDATE_INTERVAL_MS) {
+          this.setTps(calculatedTps);
+          lastTpsUpdate = now;
+          callRenderApp();
         }
       }
     } finally {
@@ -307,7 +328,7 @@ export class BenchmarkRunner {
       const finalTokens = Math.max(1, Math.round(charCount / CHARS_PER_TOKEN));
       this._metrics.tokenCount = finalTokens;
       const streamDuration = Math.max(1, Date.now() - streamStart);
-      this._metrics.tps = (finalTokens / streamDuration) * 1000;
+      this.setTps((finalTokens / streamDuration) * 1000);
     }
   }
 
