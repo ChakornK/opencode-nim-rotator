@@ -4,7 +4,8 @@ import { state, callRenderApp } from "./state.js";
 const NIM_CHAT_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const FETCH_TIMEOUT_MS = 30_000;
 const STREAM_CHUNK_TIMEOUT_MS = 30_000;
-const TPS_UPDATE_INTERVAL_MS = 500;
+const TPS_MIN_TOKENS = 8;
+const TPS_UPDATE_INTERVAL_MS = 2_000;
 const SPINNER_INTERVAL_MS = 80;
 
 export interface BenchmarkMetrics {
@@ -179,7 +180,8 @@ export class BenchmarkRunner {
 
     if (this.generation !== gen) return;
 
-    this._metrics.ttfb = Date.now() - startTime;
+    const firstByteTime = Date.now();
+    this._metrics.ttfb = firstByteTime - startTime;
     this._phase = "streaming";
     callRenderApp();
 
@@ -192,7 +194,7 @@ export class BenchmarkRunner {
       throw new Error("Response body is empty");
     }
 
-    await this.readStream(reader, gen, startTime);
+    await this.readStream(reader, gen, firstByteTime);
   }
 
   private async readStream(
@@ -202,11 +204,10 @@ export class BenchmarkRunner {
       releaseLock(): void;
     },
     gen: number,
-    startTime: number,
+    firstByteTime: number,
   ): Promise<void> {
-    const signal = this.controller!.signal;
-    const streamStart = Date.now();
-    let lastTpsUpdate = streamStart;
+    const streamStart = firstByteTime;
+    let lastTpsUpdate = 0;
     let buffer = "";
     const decoder = new TextDecoder();
     let chunkTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -265,12 +266,19 @@ export class BenchmarkRunner {
           }
         }
 
-        const now = Date.now();
-        if (now - lastTpsUpdate >= TPS_UPDATE_INTERVAL_MS) {
-          const elapsed = Math.max(1, now - streamStart);
+        if (this._metrics.tokenCount >= TPS_MIN_TOKENS && lastTpsUpdate === 0) {
+          const elapsed = Math.max(1, Date.now() - streamStart);
           this._metrics.tps = (this._metrics.tokenCount / elapsed) * 1000;
-          lastTpsUpdate = now;
+          lastTpsUpdate = Date.now();
           callRenderApp();
+        } else if (lastTpsUpdate > 0) {
+          const now = Date.now();
+          if (now - lastTpsUpdate >= TPS_UPDATE_INTERVAL_MS) {
+            const elapsed = Math.max(1, now - streamStart);
+            this._metrics.tps = (this._metrics.tokenCount / elapsed) * 1000;
+            lastTpsUpdate = now;
+            callRenderApp();
+          }
         }
       }
     } finally {

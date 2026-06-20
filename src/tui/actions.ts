@@ -159,6 +159,8 @@ export function handleFallbackChainKey(keyName: string): void {
     case "x": {
       // Remove item
       if (state.fallbackChainIndex < chain.length) {
+        const removed = chain[state.fallbackChainIndex];
+        cancelBenchmark(removed.id);
         chain.splice(state.fallbackChainIndex, 1);
         safeSaveStore();
         refreshStore();
@@ -209,7 +211,10 @@ export function handleFallbackChainKey(keyName: string): void {
       break;
     }
     case "c": {
-      cancelBenchmark();
+      const selectedModel = chain[state.fallbackChainIndex];
+      if (selectedModel) {
+        cancelBenchmark(selectedModel.id);
+      }
       break;
     }
     case "return":
@@ -305,20 +310,11 @@ export async function startBenchmark(): Promise<void> {
     return;
   }
 
-  // Cancel any in-flight benchmark before starting a new one
-  if (state.benchmarkRunner) {
-    const oldRunner = state.benchmarkRunner;
-    state.benchmarkRunner = null;
-    oldRunner.cancel();
-
-    for (const m of state.store.fallbackChain) {
-      if (m.benchmarkStatus === "running") {
-        m.benchmarkStatus = "idle";
-        delete m.benchmarkTps;
-        delete m.benchmarkTtfb;
-        delete m.benchmarkError;
-      }
-    }
+  // If this model already has a running benchmark, cancel and restart it
+  const existing = state.benchmarkRunners.get(model.id);
+  if (existing) {
+    existing.cancel();
+    state.benchmarkRunners.delete(model.id);
   }
 
   // Reset selected model to idle for fresh benchmark
@@ -328,34 +324,48 @@ export async function startBenchmark(): Promise<void> {
   delete model.benchmarkError;
 
   const runner = new BenchmarkRunner();
-  state.benchmarkRunner = runner;
+  state.benchmarkRunners.set(model.id, runner);
   model.benchmarkStatus = "running";
   callRenderApp();
 
   await runner.run(model, apiKey);
 
-  if (state.benchmarkRunner === runner) {
-    state.benchmarkRunner = null;
+  if (state.benchmarkRunners.get(model.id) === runner) {
+    state.benchmarkRunners.delete(model.id);
     runner.applyResultToModel(model);
     safeSaveStore();
     callRenderApp();
   }
 }
 
-export function cancelBenchmark(): void {
-  if (state.benchmarkRunner) {
-    state.benchmarkRunner.cancel();
-    state.benchmarkRunner = null;
-
-    for (const m of state.store.fallbackChain) {
-      if (m.benchmarkStatus === "running") {
-        m.benchmarkStatus = "idle";
-        delete m.benchmarkTps;
-        delete m.benchmarkTtfb;
-        delete m.benchmarkError;
+export function cancelBenchmark(modelId?: string): void {
+  if (modelId) {
+    const runner = state.benchmarkRunners.get(modelId);
+    if (runner) {
+      runner.cancel();
+      state.benchmarkRunners.delete(modelId);
+      const model = state.store.fallbackChain.find((m) => m.id === modelId);
+      if (model && model.benchmarkStatus === "running") {
+        model.benchmarkStatus = "idle";
+        delete model.benchmarkTps;
+        delete model.benchmarkTtfb;
+        delete model.benchmarkError;
+      }
+      safeSaveStore();
+      callRenderApp();
+    }
+  } else {
+    for (const [id, runner] of state.benchmarkRunners) {
+      runner.cancel();
+      const model = state.store.fallbackChain.find((m) => m.id === id);
+      if (model && model.benchmarkStatus === "running") {
+        model.benchmarkStatus = "idle";
+        delete model.benchmarkTps;
+        delete model.benchmarkTtfb;
+        delete model.benchmarkError;
       }
     }
-
+    state.benchmarkRunners.clear();
     safeSaveStore();
     callRenderApp();
   }

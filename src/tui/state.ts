@@ -4,7 +4,6 @@ import { loadStore, getDefaultStore, saveStore } from "../storage.js";
 import { getActiveTheme } from "../themes.js";
 import type { Screen } from "./types.js";
 import type { CliRenderer } from "@opentui/core";
-import type { BenchmarkRunner } from "./benchmark.js";
 
 export const state: {
   store: KeyStore;
@@ -33,7 +32,7 @@ export const state: {
   modelSearchQuery: string;
   availableModels: { id: string; name: string }[];
   modelsLoaded: boolean;
-  benchmarkRunner: BenchmarkRunner | null;
+  benchmarkRunners: Map<string, import("./benchmark.js").BenchmarkRunner>;
 } = {
   store: loadStore() ?? getDefaultStore(),
   currentScreen: "list",
@@ -61,7 +60,7 @@ export const state: {
   modelSearchQuery: "",
   availableModels: [],
   modelsLoaded: false,
-  benchmarkRunner: null,
+  benchmarkRunners: new Map(),
 };
 
 let navigateImpl: ((screen: Screen) => void) | null = null;

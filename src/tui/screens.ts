@@ -687,14 +687,15 @@ export function buildFallbackChain(): ScreenContent {
     const isSelected = i === state.fallbackChainIndex;
     const isActivelyBenchmarking =
       model.benchmarkStatus === "running" &&
-      state.benchmarkRunner?.modelId === model.id;
+      state.benchmarkRunners.has(model.id);
 
     let statusText: string;
     let statusIsError = false;
 
     if (isActivelyBenchmarking) {
-      const m = state.benchmarkRunner!.metrics;
-      const phase = state.benchmarkRunner!.phase;
+      const runner = state.benchmarkRunners.get(model.id)!;
+      const m = runner.metrics;
+      const phase = runner.phase;
       if (phase === "connecting") {
         statusText = `${getBrailleSpinner()} connecting...`;
       } else if (phase === "streaming") {
