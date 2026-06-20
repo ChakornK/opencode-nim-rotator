@@ -898,7 +898,7 @@ export function buildFallbackChain(): ScreenContent {
       ...items,
     ),
     helpText:
-      "[\u2191\u2193] move  [x] remove  [j/k] up/down\n\n[a] add  [b] benchmark  [c] cancel",
+      "[\u2191\u2193] move  [x] remove  [j/k] reorder\n\n[a] add  [b] benchmark  [c] cancel",
   };
 }
 
