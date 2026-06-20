@@ -209,6 +209,7 @@ export class BenchmarkRunner {
     let streamStart = 0;
     let lastTpsUpdate = 0;
     let charCount = 0;
+    let contentChunks = 0;
     let buffer = "";
     const decoder = new TextDecoder();
     let chunkTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -263,6 +264,7 @@ export class BenchmarkRunner {
               const content = parsed?.choices?.[0]?.delta?.content;
               if (content) {
                 charCount += content.length;
+                contentChunks++;
                 if (streamStart === 0) {
                   streamStart = ttfbTime;
                 }
@@ -271,7 +273,7 @@ export class BenchmarkRunner {
           }
         }
 
-        if (charCount === 0) continue;
+        if (charCount === 0 || contentChunks < 2) continue;
 
         const estimatedTokens = Math.max(
           1,
