@@ -4,7 +4,6 @@ import { state, callRenderApp } from "./state.js";
 const NIM_CHAT_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const FETCH_TIMEOUT_MS = 30_000;
 const STREAM_CHUNK_TIMEOUT_MS = 30_000;
-const TPS_MIN_TOKENS = 8;
 const TPS_UPDATE_INTERVAL_MS = 2_000;
 const SPINNER_INTERVAL_MS = 80;
 const CHARS_PER_TOKEN = 4;
@@ -280,12 +279,12 @@ export class BenchmarkRunner {
         );
         this._metrics.tokenCount = estimatedTokens;
 
-        if (estimatedTokens >= TPS_MIN_TOKENS && lastTpsUpdate === 0) {
+        if (lastTpsUpdate === 0) {
           const elapsed = Math.max(1, Date.now() - streamStart);
           this._metrics.tps = (estimatedTokens / elapsed) * 1000;
           lastTpsUpdate = Date.now();
           callRenderApp();
-        } else if (lastTpsUpdate > 0) {
+        } else {
           const now = Date.now();
           if (now - lastTpsUpdate >= TPS_UPDATE_INTERVAL_MS) {
             const elapsed = Math.max(1, now - streamStart);
