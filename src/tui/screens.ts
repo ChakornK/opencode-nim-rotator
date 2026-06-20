@@ -832,7 +832,7 @@ export function buildFallbackChain(): ScreenContent {
       statusText = "";
     }
 
-    const prefix = isSelected ? "> " : "  ";
+    const prefix = isSelected ? "\u25b6 " : "  ";
     const nameWidth = listWidth - 4;
     const displayName =
       model.name.length > nameWidth
@@ -881,7 +881,7 @@ export function buildFallbackChain(): ScreenContent {
           width: listWidth,
         },
         Text({
-          content: `${isAddSelected ? "> " : "  "}+ Add model`,
+          content: `${isAddSelected ? "\u25b6 " : "  "}+ Add model`,
           fg: isAddSelected ? theme.selectedText : theme.textMuted,
         }),
       ),
@@ -993,7 +993,7 @@ export function buildModelSelector(): ScreenContent {
   for (let i = startIdx; i < endIdx; i++) {
     const model = searchFilteredModels[i];
     const isSelected = i === state.modelSelectorIndex;
-    const prefix = isSelected ? "> " : "  ";
+    const prefix = isSelected ? "\u25b6 " : "  ";
 
     items.push(
       Box(
