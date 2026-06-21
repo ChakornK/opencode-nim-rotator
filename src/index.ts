@@ -15,15 +15,13 @@ import type { KeyStore, KeyStoreConfig, FallbackModel } from "./types.js";
 const PROVIDER_ID = "nvidia";
 const NIM_BASE_URL = "https://integrate.api.nvidia.com";
 const VALID_STRATEGIES = ["round-robin", "least-failures"] as const;
-const FALLBACK_TIMEOUT_MS = 60_000;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
-
-let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 interface SessionState {
   attemptIndex: number;
   timeoutTriggered: boolean;
   inRetry: boolean;
+  aborting: boolean;
   pendingRetryIndex: number | undefined;
   lastUserMessageID: string | undefined;
   timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -35,6 +33,82 @@ function isValidStrategy(
   val: unknown,
 ): val is KeyStoreConfig["rotationStrategy"] {
   return val === "round-robin" || val === "least-failures";
+}
+
+function extractStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const rec = error as Record<string, unknown>;
+  const data = rec.data as Record<string, unknown> | undefined;
+  if (typeof data?.statusCode === "number") return data.statusCode;
+  if (typeof data?.status === "number") return data.status;
+  if (typeof rec.status === "number") return rec.status;
+  if (typeof rec.statusCode === "number") return rec.statusCode;
+  return undefined;
+}
+
+function describeError(
+  error: unknown,
+  state: SessionState,
+  maxRateLimitFailures: number,
+): string {
+  if (!error || typeof error !== "object") return "Unknown error";
+  const rec = error as Record<string, unknown>;
+
+  if (rec.name === "MessageAbortedError") {
+    if (state.timeoutTriggered) return "Request timed out after 60s";
+    const msg =
+      typeof (rec.data as Record<string, unknown>)?.message === "string"
+        ? ((rec.data as Record<string, unknown>).message as string)
+        : "";
+    if (/time\s*out|timed\s*out|timeout/i.test(msg))
+      return "Request timed out after 60s";
+    return `Message aborted: ${msg || "no details"}`;
+  }
+
+  if (rec.name === "APIError") {
+    const data = rec.data as Record<string, unknown> | undefined;
+    const statusCode = extractStatus(error);
+    const body = data?.body as Record<string, unknown> | undefined;
+    const apiMsg =
+      typeof body?.message === "string"
+        ? body.message
+        : typeof body?.error === "string"
+          ? body.error
+          : typeof body?.title === "string"
+            ? body.title
+            : undefined;
+    if (statusCode === 429) {
+      return `Rate limited (429) — ${state.rateLimitCount + 1}/${maxRateLimitFailures} consecutive`;
+    }
+    if (typeof statusCode === "number") {
+      return `API error ${statusCode}${apiMsg ? `: ${apiMsg}` : ""}`;
+    }
+    return `API error${apiMsg ? `: ${apiMsg}` : ""}`;
+  }
+
+  if (rec.name === "ProviderAuthError") return "Provider auth error";
+
+  const statusCode = extractStatus(error);
+  if (statusCode === 429) {
+    return `Rate limited (429) — ${state.rateLimitCount + 1}/${maxRateLimitFailures} consecutive`;
+  }
+  if (typeof statusCode === "number") {
+    const title =
+      typeof rec.title === "string"
+        ? rec.title
+        : typeof rec.message === "string"
+          ? rec.message
+          : undefined;
+    return `API error ${statusCode}${title ? `: ${title}` : ""}`;
+  }
+
+  const msg =
+    typeof rec.message === "string"
+      ? rec.message
+      : typeof rec.code === "string"
+        ? rec.code
+        : "Unknown error";
+  return msg;
 }
 
 function shouldRetryForError(error: unknown, state: SessionState): boolean {
@@ -53,18 +127,18 @@ function shouldRetryForError(error: unknown, state: SessionState): boolean {
   if (rec.name === "APIError") {
     const data = rec.data as Record<string, unknown> | undefined;
     if (data?.isRetryable) return true;
-    const statusCode = data?.statusCode;
-    if (
-      typeof statusCode === "number" &&
-      RETRYABLE_STATUS_CODES.has(statusCode)
-    )
-      return true;
-    return false;
+    const statusCode = extractStatus(error);
+    return (
+      typeof statusCode === "number" && RETRYABLE_STATUS_CODES.has(statusCode)
+    );
   }
 
   if (rec.name === "ProviderAuthError") return false;
 
-  return true;
+  const statusCode = extractStatus(error);
+  return (
+    typeof statusCode === "number" && RETRYABLE_STATUS_CODES.has(statusCode)
+  );
 }
 
 function modelKey(model: { providerID: string; modelID: string }): string {
@@ -149,6 +223,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       attemptIndex: 0,
       timeoutTriggered: false,
       inRetry: false,
+      aborting: false,
       pendingRetryIndex: undefined,
       lastUserMessageID: undefined,
       timeoutHandle: undefined,
@@ -159,38 +234,14 @@ export const NvidiaNimKeyRotator: Plugin = async (
     return next;
   };
 
-  const clearScheduledTimeout = (state: SessionState) => {
-    if (state.timeoutHandle) {
-      clearTimeout(state.timeoutHandle);
-      state.timeoutHandle = undefined;
-    }
-  };
-
-  const scheduleTimeout = (
-    sessionID: string,
-    messageID: string,
-    state: SessionState,
-  ) => {
-    clearScheduledTimeout(state);
-    state.timeoutTriggered = false;
-    state.timeoutHandle = setTimeout(() => {
-      if (state.lastUserMessageID !== messageID) return;
-      state.timeoutTriggered = true;
-      void client.session.abort({ path: { id: sessionID } });
-    }, FALLBACK_TIMEOUT_MS);
-  };
-
   const cleanupSession = (sessionID: string) => {
-    const state = sessions.get(sessionID);
-    if (state) {
-      clearScheduledTimeout(state);
-      sessions.delete(sessionID);
-    }
+    sessions.delete(sessionID);
   };
 
   const triggerRetry = async (
     sessionID: string,
     state: SessionState,
+    reason?: string,
   ): Promise<boolean> => {
     const chain = store.fallbackChain;
     if (chain.length < 2) return false;
@@ -206,7 +257,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
       await showToast(
         "warning",
-        `${source.name} failed, retrying with ${target.name}...`,
+        `${source.name} → ${target.name}${reason ? `: ${reason}` : ""}`,
       );
 
       const messagesResult = await client.session.messages({
@@ -280,30 +331,100 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   };
 
-  if (cleanupInterval) clearInterval(cleanupInterval);
-  cleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [sid, state] of sessions) {
-      if (state.timeoutHandle && !state.inRetry) {
-        // stale sessions
-      }
-    }
-  }, 30_000);
-  if (cleanupInterval && typeof cleanupInterval === "object") {
-    try {
-      (cleanupInterval as ReturnType<typeof setTimeout>).unref?.();
-    } catch {}
-  }
-
   const is429Error = (error: unknown): boolean => {
     if (!error || typeof error !== "object") return false;
+    const statusCode = extractStatus(error);
+    if (statusCode === 429) return true;
     const rec = error as Record<string, unknown>;
     if (rec.name === "APIError") {
       const data = rec.data as Record<string, unknown> | undefined;
-      const statusCode = data?.statusCode;
-      return statusCode === 429 || data?.isRetryable === true;
+      return data?.isRetryable === true;
     }
     return false;
+  };
+
+  const handleSessionError = async (event: Record<string, unknown>) => {
+    const props = event.properties as Record<string, unknown> | undefined;
+    const error = event.error ?? props?.error;
+    const sessionID =
+      (props?.sessionID as string | undefined) ??
+      (event.sessionID as string | undefined);
+
+    if (is429Error(error)) {
+      reloadFromDisk();
+      if (store.lastUsedKeyId) {
+        recordFailure(store, store.lastUsedKeyId);
+        recordRateLimit(store, store.lastUsedKeyId);
+      }
+      saveStore(store, config);
+    }
+
+    if (!sessionID) return;
+
+    const state = sessions.get(sessionID);
+    if (!state) return;
+    if (state.aborting) {
+      state.aborting = false;
+      return;
+    }
+    if (state.inRetry) return;
+
+    if (!shouldRetryForError(error, state)) {
+      if (!is429Error(error)) {
+        state.rateLimitCount = 0;
+      }
+      return;
+    }
+
+    if (is429Error(error)) {
+      state.rateLimitCount++;
+      if (state.rateLimitCount < store.maxRateLimitFailures) return;
+    } else {
+      state.rateLimitCount = 0;
+    }
+
+    const reason = describeError(error, state, store.maxRateLimitFailures);
+    const retried = await triggerRetry(sessionID, state, reason);
+    if (!retried) {
+      cleanupSession(sessionID);
+    }
+  };
+
+  const handleSessionStatusRetry = async (
+    sessionID: string,
+    status: Record<string, unknown>,
+  ) => {
+    const message = status.message as string | undefined;
+    const is429 =
+      typeof message === "string" && /429|too many requests/i.test(message);
+    if (!is429) return;
+
+    reloadFromDisk();
+    if (store.lastUsedKeyId) {
+      recordFailure(store, store.lastUsedKeyId);
+      recordRateLimit(store, store.lastUsedKeyId);
+    }
+    saveStore(store, config);
+
+    const state = sessions.get(sessionID);
+    if (!state) return;
+    if (state.inRetry) return;
+
+    state.rateLimitCount++;
+    if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+    state.aborting = true;
+    void client.session.abort({ path: { id: sessionID } });
+
+    const source = store.fallbackChain[state.attemptIndex];
+    const nextIndex = (state.attemptIndex + 1) % store.fallbackChain.length;
+    const target = store.fallbackChain[nextIndex];
+    const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
+
+    const retried = await triggerRetry(sessionID, state, reason);
+    if (!retried) {
+      cleanupSession(sessionID);
+    }
   };
 
   const hooks: Hooks = {
@@ -354,7 +475,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
       const sessionID = input.sessionID;
       const state = getState(sessionID);
       const requestedModel = output.message.model ?? input.model;
-
       let activeChainKey = state.activeChainKey;
       let activeChainKeyStr = activeChainKey;
 
@@ -366,7 +486,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
         activeChainKeyStr = modelKey(requestedModel);
       }
 
-      // Find if the requested model is in our fallback chain
       const chainIndex = findChainIndex(chain, requestedModel);
       if (chainIndex < 0 && state.pendingRetryIndex === undefined) {
         cleanupSession(sessionID);
@@ -381,7 +500,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
         return;
       }
 
-      // Override the model in the output message
       output.message.model = {
         providerID: PROVIDER_ID,
         modelID: target.id,
@@ -391,16 +509,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
       state.attemptIndex = desiredIndex;
       state.pendingRetryIndex = undefined;
       state.lastUserMessageID = output.message.id;
-
-      // Don't timeout the last model in the chain
-      const isLastModel = desiredIndex === chain.length - 1;
-      if (isLastModel) {
-        clearScheduledTimeout(state);
-        state.timeoutTriggered = false;
-        return;
-      }
-
-      scheduleTimeout(sessionID, output.message.id, state);
     },
     "shell.env": async (_input, output) => {
       if (output.env.NVIDIA_API_KEY !== undefined) {
@@ -414,89 +522,31 @@ export const NvidiaNimKeyRotator: Plugin = async (
     },
     event: async ({ event }) => {
       if (event.type === "session.error") {
-        const evt = event as Record<string, unknown>;
-        const props = evt.properties as Record<string, unknown> | undefined;
-        const error = evt.error ?? props?.error;
-        const sessionID =
-          ((props as Record<string, unknown> | undefined)?.sessionID as
-            | string
-            | undefined) ??
-          ((evt as Record<string, unknown>).sessionID as string | undefined);
-
-        if (is429Error(error)) {
-          reloadFromDisk();
-          if (store.lastUsedKeyId) {
-            recordFailure(store, store.lastUsedKeyId);
-            recordRateLimit(store, store.lastUsedKeyId);
-          }
-          saveStore(store, config);
-        }
-
-        if (!sessionID) return;
-
-        const state = sessions.get(sessionID);
-        if (!state) return;
-        if (state.inRetry) return;
-
-        clearScheduledTimeout(state);
-
-        if (!shouldRetryForError(error, state)) {
-          state.timeoutTriggered = false;
-          if (!is429Error(error)) {
-            state.rateLimitCount = 0;
-          }
-          return;
-        }
-
-        if (is429Error(error)) {
-          state.rateLimitCount++;
-          if (state.rateLimitCount < store.maxRateLimitFailures) {
-            return;
-          }
-        } else {
-          state.rateLimitCount = 0;
-        }
-
-        const retried = await triggerRetry(sessionID, state);
-        if (!retried) {
-          cleanupSession(sessionID);
-        }
-
+        await handleSessionError(event as Record<string, unknown>);
         return;
       }
 
-      if (
-        event.type === "session.status" &&
-        (
-          (event.properties as Record<string, unknown>)?.status as Record<
-            string,
-            unknown
-          >
-        )?.type === "idle"
-      ) {
-        const sessionID = (event.properties as Record<string, unknown>)
-          .sessionID as string;
-        if (!sessionID) return;
+      if (event.type === "session.status") {
+        const props = (event as Record<string, unknown>).properties as
+          | Record<string, unknown>
+          | undefined;
+        const sessionID = props?.sessionID as string | undefined;
+        const status = props?.status as Record<string, unknown> | undefined;
+        const statusType = status?.type;
 
-        const state = sessions.get(sessionID);
-        if (!state) return;
-
-        clearScheduledTimeout(state);
-
-        if (state.inRetry) return;
-        if (state.pendingRetryIndex !== undefined) return;
-
-        if (state.timeoutTriggered) {
-          reloadFromDisk();
-          const retried = await triggerRetry(sessionID, state);
-          if (!retried) {
-            cleanupSession(sessionID);
-          }
-          saveStore(store, config);
+        if (statusType === "retry" && sessionID && status) {
+          await handleSessionStatusRetry(sessionID, status);
           return;
         }
 
-        cleanupSession(sessionID);
+        if (statusType === "idle" && sessionID) {
+          const state = sessions.get(sessionID);
+          if (!state) return;
+          if (state.inRetry) return;
+          if (state.pendingRetryIndex !== undefined) return;
+          cleanupSession(sessionID);
+          return;
+        }
       }
 
       if (event.type === "session.idle") {
