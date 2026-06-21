@@ -1,6 +1,6 @@
 # opencode-nim-rotator
 
-An [OpenCode](https://opencode.ai) plugin for managing and rotating multiple [NVIDIA NIM](https://build.nvidia.com) API keys, with automatic model fallback and benchmarking.
+An [OpenCode](https://opencode.ai) plugin for managing and rotating multiple [NVIDIA NIM](https://build.nvidia.com) API keys, with automatic model fallback, benchmarking, and a built-in TUI manager.
 
 ## Features
 
@@ -14,10 +14,10 @@ An [OpenCode](https://opencode.ai) plugin for managing and rotating multiple [NV
 
 The plugin hooks into OpenCode's request pipeline:
 
-- **`chat.headers`** injects a rotated API key into the `Authorization` header on every outgoing NVIDIA NIM request. If a key returns 401, 403, or 429, its failure count is incremented and the next key is tried. Keys that exceed `NIM_ROTATOR_MAX_FAILURES` are automatically skipped. Successful requests reset the failure count.
+- **`chat.headers`** injects a rotated API key into the `Authorization` header on every outgoing NVIDIA NIM request. If a key returns 401, 403, or 429, its failure count is incremented and the next key is tried. Keys that exceed `NIM_ROTATOR_MAX_FAILURES` are automatically disabled. Successful requests reset the failure count.
 - **`shell.env`** rotates `NVIDIA_API_KEY` for shell commands too.
-- **`chat.message`** rewrites the model to the first entry in your fallback chain. If the streaming response stalls for more than 60 seconds, returns a retryable server error, or accumulates `maxRateLimitFailures` consecutive 429s, the plugin aborts the request and prompts the session again with the next model in the chain. A toast notification appears when fallback activates. The last model in the chain is never timed out.
-- **`session.error`** records key-level rate-limit failures, which reset when the next request succeeds on that key.
+- **`chat.message`** rewrites the model to the matching entry in your fallback chain. If the streaming response stalls for more than 60 seconds, returns a retryable server error (408, 429, 500, 502, 503, 504), or accumulates `maxRateLimitFailures` consecutive 429s, the plugin aborts the request and re-prompts the session with the next model in the chain. A toast notification appears when fallback activates. The last model in the chain is never timed out.
+- **`session.error`** / **`session.status`** record key-level rate-limit failures, which reset when the next request succeeds on that key.
 
 ## Install
 
@@ -35,6 +35,12 @@ Run the TUI manager:
 
 ```bash
 opencode-nim-rotator
+```
+
+Or if you prefer:
+
+```bash
+npx opencode-nim-rotator
 ```
 
 Or manually — add at least one key via OpenCode's auth system:
@@ -59,7 +65,7 @@ After adding keys, restart opencode. The plugin will rotate keys on every NVIDIA
 
 ## Model Fallback Chain
 
-In addition to rotating API keys, the plugin can automatically retry failed requests against a chain of alternative NVIDIA NIM models. When the primary model times out, returns a retryable server error, or hits a rate limit, the plugin automatically retries the same prompt with the next model in your chain.
+In addition to rotating API keys, the plugin can automatically retry failed requests against a chain of alternative NVIDIA NIM models. When the primary model times out, returns a retryable server error, or hits the rate limit threshold, the plugin automatically retries the same prompt with the next model in your chain.
 
 ### Benchmarking Models
 
@@ -132,11 +138,12 @@ Keys, fallback chain, and theme are stored in `~/.config/opencode/nim-rotator-ke
       "benchmarkStatus": "done"
     }
   ],
-  "maxRateLimitFailures": 3
+  "maxRateLimitFailures": 3,
+  "theme": ""
 }
 ```
 
-`rateLimitCount` tracks consecutive 429 errors per key; `maxRateLimitFailures` controls how many trigger a cross-model fallback.
+`rateLimitCount` tracks consecutive 429 errors per key; `maxRateLimitFailures` controls how many trigger a cross-model fallback. Set `theme` to a theme ID to override the TUI theme independently, or leave it empty to sync with `opencode.json`.
 
 ## Themes
 
