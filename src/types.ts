@@ -1,3 +1,8 @@
+export interface ModelBlacklistEntry {
+  blacklistedUntil: number;
+  nextDurationMs: number;
+}
+
 export interface ApiKeyEntry {
   id: string;
   name: string;
@@ -7,6 +12,7 @@ export interface ApiKeyEntry {
   failureCount: number;
   rateLimitCount: number;
   enabled: boolean;
+  modelBlacklist?: { [modelId: string]: ModelBlacklistEntry };
 }
 
 export interface FallbackModel {

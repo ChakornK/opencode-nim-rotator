@@ -9,6 +9,7 @@ import {
   getDefaultStore,
   recordRateLimit,
   resetRateLimit,
+  recordModelRateLimit,
 } from "./storage.js";
 import type { KeyStore, KeyStoreConfig, FallbackModel } from "./types.js";
 
@@ -27,6 +28,7 @@ interface SessionState {
   timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   activeChainKey: string | undefined;
   rateLimitCount: number;
+  currentModelId: string | undefined;
 }
 
 function isValidStrategy(
@@ -258,6 +260,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       timeoutHandle: undefined,
       activeChainKey: undefined,
       rateLimitCount: 0,
+      currentModelId: undefined,
     };
     sessions.set(sessionID, next);
     return next;
@@ -361,6 +364,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   };
 
+  const isRateLimit429Error = (error: unknown): boolean => {
+    if (!error || typeof error !== "object") return false;
+    return extractStatus(error) === 429;
+  };
+
   const is429Error = (error: unknown): boolean => {
     if (!error || typeof error !== "object") return false;
     const statusCode = extractStatus(error);
@@ -385,6 +393,18 @@ export const NvidiaNimKeyRotator: Plugin = async (
       if (store.lastUsedKeyId) {
         recordFailure(store, store.lastUsedKeyId);
         recordRateLimit(store, store.lastUsedKeyId);
+        if (isRateLimit429Error(error)) {
+          const stateForBlacklist = sessionID
+            ? sessions.get(sessionID)
+            : undefined;
+          if (stateForBlacklist?.currentModelId) {
+            recordModelRateLimit(
+              store,
+              store.lastUsedKeyId,
+              stateForBlacklist.currentModelId,
+            );
+          }
+        }
       }
       saveStore(store, config);
     }
@@ -437,6 +457,14 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (store.lastUsedKeyId) {
       recordFailure(store, store.lastUsedKeyId);
       recordRateLimit(store, store.lastUsedKeyId);
+      const stateForBlacklist = sessions.get(sessionID);
+      if (stateForBlacklist?.currentModelId) {
+        recordModelRateLimit(
+          store,
+          store.lastUsedKeyId,
+          stateForBlacklist.currentModelId,
+        );
+      }
     }
     saveStore(store, config);
 
@@ -493,13 +521,18 @@ export const NvidiaNimKeyRotator: Plugin = async (
     "chat.headers": async (_input, _output) => {
       reloadFromDisk();
       const prevKeyId = store.lastUsedKeyId;
-      const next = getNextKey(store, config);
+      const modelIdForRotation = _input.model?.id;
+      const next = getNextKey(store, config, modelIdForRotation);
       if (next) {
         _output.headers["Authorization"] = `Bearer ${next.key.key}`;
         if (prevKeyId && prevKeyId !== next.key.id) {
           resetRateLimit(store, prevKeyId);
         }
         saveStore(store, config);
+      }
+      if (modelIdForRotation && _input.sessionID) {
+        const state = getState(_input.sessionID);
+        state.currentModelId = modelIdForRotation;
       }
     },
     "chat.message": async (input, output) => {
