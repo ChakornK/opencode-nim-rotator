@@ -145,6 +145,35 @@ function modelKey(model: { providerID: string; modelID: string }): string {
   return `${model.providerID}/${model.modelID}`;
 }
 
+const subAgentCache = new Map<string, boolean>();
+
+async function isSubagentSession(
+  client: PluginInput["client"],
+  sessionID: string,
+): Promise<boolean> {
+  const cached = subAgentCache.get(sessionID);
+  if (cached !== undefined) return cached;
+  let result = false;
+  try {
+    const res = await (
+      client.session as unknown as {
+        get: (p: { path: { id: string } }) => Promise<unknown>;
+      }
+    ).get({ path: { id: sessionID } });
+    const data =
+      res && typeof res === "object" && "data" in res
+        ? (res as { data: unknown }).data
+        : res;
+    if (data && typeof data === "object") {
+      result = (data as Record<string, unknown>)?.parentID !== undefined;
+    }
+  } catch {
+    result = false;
+  }
+  subAgentCache.set(sessionID, result);
+  return result;
+}
+
 function findChainIndex(
   chain: FallbackModel[],
   model: { providerID: string; modelID: string } | undefined,
@@ -236,6 +265,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const cleanupSession = (sessionID: string) => {
     sessions.delete(sessionID);
+    subAgentCache.delete(sessionID);
   };
 
   const triggerRetry = async (
@@ -369,7 +399,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
     if (state.inRetry) return;
 
-    if (!shouldRetryForError(error, state)) {
+    const isSubagent = await isSubagentSession(client, sessionID);
+    const subagentRateLimited =
+      isSubagent && state.rateLimitCount >= store.maxRateLimitFailures;
+
+    if (!shouldRetryForError(error, state) && !subagentRateLimited) {
       if (!is429Error(error)) {
         state.rateLimitCount = 0;
       }
@@ -379,7 +413,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (is429Error(error)) {
       state.rateLimitCount++;
       if (state.rateLimitCount < store.maxRateLimitFailures) return;
-    } else {
+    } else if (!subagentRateLimited) {
       state.rateLimitCount = 0;
     }
 
@@ -413,14 +447,14 @@ export const NvidiaNimKeyRotator: Plugin = async (
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
+    if (await isSubagentSession(client, sessionID)) {
+      return;
+    }
+
     state.aborting = true;
     void client.session.abort({ path: { id: sessionID } });
 
-    const source = store.fallbackChain[state.attemptIndex];
-    const nextIndex = (state.attemptIndex + 1) % store.fallbackChain.length;
-    const target = store.fallbackChain[nextIndex];
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
-
     const retried = await triggerRetry(sessionID, state, reason);
     if (!retried) {
       cleanupSession(sessionID);
