@@ -140,33 +140,21 @@ export function saveStore(store: KeyStore, config?: KeyStoreConfig): void {
   }
   store.updatedAt = Date.now();
 
-  let merged = store;
-  try {
-    if (existsSync(storePath)) {
-      const diskRaw = readFileSync(storePath, "utf-8");
-      const diskData = JSON.parse(diskRaw);
-      if (typeof diskData === "object" && diskData !== null) {
-        const disk = diskData as Record<string, unknown>;
-        const mem = store as unknown as Record<string, unknown>;
-        for (const key of Object.keys(disk)) {
-          if (!(key in mem)) {
-            (merged as unknown as Record<string, unknown>)[key] = disk[key];
-          }
-        }
-      }
-    }
-  } catch {}
-
   const tmpPath = storePath + ".tmp." + crypto.randomUUID();
   try {
-    writeFileSync(tmpPath, JSON.stringify(merged, null, 2) + "\n", {
+    writeFileSync(tmpPath, JSON.stringify(store, null, 2) + "\n", {
       mode: 0o600,
     });
     renameSync(tmpPath, storePath);
   } catch (err) {
     try {
       unlinkSync(tmpPath);
-    } catch {}
+    } catch (cleanupErr) {
+      console.debug(
+        `[nim-rotator] Failed to clean up tmp file ${tmpPath}:`,
+        cleanupErr,
+      );
+    }
     throw err;
   }
 }
@@ -238,7 +226,19 @@ export function getNextKey(
     config?.rotationStrategy ?? store.rotationStrategy ?? "round-robin";
 
   if (strategy === "least-failures") {
+    const now = Date.now();
+    const scoreBlacklists = (entry: ApiKeyEntry): number => {
+      if (!entry.modelBlacklist) return 0;
+      let sum = 0;
+      for (const slot of Object.values(entry.modelBlacklist)) {
+        if (slot.blacklistedUntil > now) sum += slot.blacklistedUntil - now;
+      }
+      return sum;
+    };
     const sorted = [...active].sort((a, b) => {
+      const aBlocked = scoreBlacklists(a);
+      const bBlocked = scoreBlacklists(b);
+      if (aBlocked !== bBlocked) return aBlocked - bBlocked;
       return (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0);
     });
     const best = sorted[0];
@@ -295,12 +295,16 @@ export function recordModelRateLimit(
   const slot = entry.modelBlacklist[modelId];
   if (slot && slot.blacklistedUntil > now) {
     const remaining = slot.blacklistedUntil - now;
-    slot.blacklistedUntil =
+    const extendedUntil =
       now + Math.max(remaining, MODEL_BLACKLIST_BASE_DURATION_MS);
-    slot.nextDurationMs = Math.min(
+    const escalatedNext = Math.min(
       slot.nextDurationMs * MODEL_BLACKLIST_ESCALATION,
       MODEL_BLACKLIST_MAX_DURATION_MS,
     );
+    entry.modelBlacklist[modelId] = {
+      blacklistedUntil: extendedUntil,
+      nextDurationMs: escalatedNext,
+    };
     return;
   }
   const previousNext = slot?.nextDurationMs ?? MODEL_BLACKLIST_BASE_DURATION_MS;
@@ -344,23 +348,6 @@ export function pruneAllExpiredBlacklists(
   }
 }
 
-export function pruneExpiredBlacklistsForModel(
-  store: KeyStore,
-  modelId: string,
-  now: number = Date.now(),
-): void {
-  for (const entry of store.keys) {
-    if (!entry.modelBlacklist) continue;
-    const slot = entry.modelBlacklist[modelId];
-    if (slot && slot.blacklistedUntil <= now) {
-      delete entry.modelBlacklist[modelId];
-      if (Object.keys(entry.modelBlacklist).length === 0) {
-        delete entry.modelBlacklist;
-      }
-    }
-  }
-}
-
 export function exportKeys(store: KeyStore): ExportPayload {
   return {
     version: 1,
@@ -388,7 +375,12 @@ export function writeExportFile(
   } catch (err) {
     try {
       unlinkSync(tmpPath);
-    } catch {}
+    } catch (cleanupErr) {
+      console.debug(
+        `[nim-rotator] Failed to clean up tmp file ${tmpPath}:`,
+        cleanupErr,
+      );
+    }
     throw err;
   }
 }
@@ -406,7 +398,8 @@ export function readAndValidateImportFile(
   let raw: string;
   try {
     raw = readFileSync(resolved, "utf-8");
-  } catch {
+  } catch (err) {
+    console.debug(`[nim-rotator] Cannot read import file ${resolved}:`, err);
     return { error: "Cannot read file" };
   }
   return { raw };
@@ -437,7 +430,8 @@ export function validateImportPayload(raw: string): ImportResult {
   let data: unknown;
   try {
     data = JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    console.debug("[nim-rotator] Import file invalid JSON:", err);
     result.errors.push("Invalid JSON format");
     return result;
   }

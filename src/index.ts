@@ -26,6 +26,7 @@ interface SessionState {
   lastUserMessageID: string | undefined;
   timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   activeChainKey: string | undefined;
+  activeChainModelId: string | undefined;
   rateLimitCount: number;
   currentModelId: string | undefined;
 }
@@ -146,6 +147,20 @@ function modelKey(model: { providerID: string; modelID: string }): string {
   return `${model.providerID}/${model.modelID}`;
 }
 
+const RATE_LIMIT_MESSAGE_PATTERNS: ReadonlyArray<RegExp> = [
+  /\b429\b/,
+  /too many requests/i,
+  /rate[- ]limit(?:ed| reach)/i,
+  /exceeded.*(?:rate|quota)/i,
+  /quota.*exceeded/i,
+  /resource.*exhausted/i,
+];
+
+function isStatusMessageRateLimited(message: unknown): boolean {
+  if (typeof message !== "string" || message.length === 0) return false;
+  return RATE_LIMIT_MESSAGE_PATTERNS.some((re) => re.test(message));
+}
+
 async function isSubagentSession(
   client: PluginInput["client"],
   sessionID: string,
@@ -216,8 +231,15 @@ export const NvidiaNimKeyRotator: Plugin = async (
   const sessions = new Map<string, SessionState>();
 
   const reloadFromDisk = () => {
-    const fresh = loadStore(config);
-    if (fresh !== null) {
+    let fresh: KeyStore | null = null;
+    try {
+      fresh = loadStore(config);
+    } catch (err) {
+      console.debug("[nim-rotator] Failed to reload store from disk:", err);
+      return;
+    }
+    if (fresh === null) return;
+    try {
       store.keys = fresh.keys;
       store.currentIndex = fresh.currentIndex;
       store.rotationStrategy = fresh.rotationStrategy;
@@ -232,6 +254,16 @@ export const NvidiaNimKeyRotator: Plugin = async (
         fresh.maxRateLimitFailures >= 1
           ? fresh.maxRateLimitFailures
           : getDefaultStore().maxRateLimitFailures;
+    } catch (err) {
+      console.debug("[nim-rotator] Failed to apply reloaded store:", err);
+    }
+  };
+
+  const safeSaveStore = () => {
+    try {
+      saveStore(store, config);
+    } catch (err) {
+      console.error("[nim-rotator] Failed to save store:", err);
     }
   };
 
@@ -243,7 +275,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       const existing = store.keys.find((k) => k.name === "env-default");
       if (!existing) {
         addKey(store, "env-default", envKey);
-        saveStore(store, config);
+        safeSaveStore();
       }
     }
   }
@@ -256,7 +288,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
       await client.tui?.showToast?.({
         body: { title: "Model Fallback", message, variant },
       });
-    } catch {}
+    } catch (err) {
+      console.debug("[nim-rotator] showToast failed:", err);
+    }
   };
 
   const getState = (sessionID: string): SessionState => {
@@ -271,6 +305,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       lastUserMessageID: undefined,
       timeoutHandle: undefined,
       activeChainKey: undefined,
+      activeChainModelId: undefined,
       rateLimitCount: 0,
       currentModelId: undefined,
     };
@@ -367,7 +402,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
       });
 
       return true;
-    } catch {
+    } catch (err) {
+      console.debug(`[nim-rotator] triggerRetry failed for ${sessionID}:`, err);
       state.pendingRetryIndex = undefined;
       return false;
     } finally {
@@ -377,7 +413,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const is429Error = (error: unknown): boolean => {
     if (!error || typeof error !== "object") return false;
-    return extractStatus(error) === 429;
+    if (extractStatus(error) === 429) return true;
+    const rec = error as Record<string, unknown>;
+    const data = rec.data as Record<string, unknown> | undefined;
+    const message = data?.message ?? rec.message;
+    return isStatusMessageRateLimited(message);
   };
 
   const handleSessionError = async (event: Record<string, unknown>) => {
@@ -395,15 +435,14 @@ export const NvidiaNimKeyRotator: Plugin = async (
         const stateForBlacklist = sessionID
           ? sessions.get(sessionID)
           : undefined;
-        if (stateForBlacklist?.currentModelId) {
-          recordModelRateLimit(
-            store,
-            errorKeyId,
-            stateForBlacklist.currentModelId,
-          );
+        const modelForBlacklist =
+          stateForBlacklist?.currentModelId ??
+          stateForBlacklist?.activeChainModelId;
+        if (modelForBlacklist) {
+          recordModelRateLimit(store, errorKeyId, modelForBlacklist);
         }
       }
-      saveStore(store, config);
+      safeSaveStore();
     }
 
     if (!sessionID) return;
@@ -416,15 +455,22 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
     if (state.inRetry) return;
 
-    const isSubagent = await isSubagentSessionCached(client, sessionID);
-    const subagentRateLimited =
-      isSubagent && state.rateLimitCount >= store.maxRateLimitFailures;
-
-    if (!shouldRetryForError(error, state) && !subagentRateLimited) {
+    if (!shouldRetryForError(error, state)) {
       if (!is429Error(error)) {
         state.rateLimitCount = 0;
       }
       return;
+    }
+
+    let subagentRateLimited = false;
+    if (!is429Error(error)) {
+      const isSubagent = await isSubagentSessionCached(client, sessionID);
+      subagentRateLimited =
+        isSubagent && state.rateLimitCount >= store.maxRateLimitFailures;
+      if (!subagentRateLimited) {
+        state.rateLimitCount = 0;
+        return;
+      }
     }
 
     if (is429Error(error)) {
@@ -446,23 +492,21 @@ export const NvidiaNimKeyRotator: Plugin = async (
     status: Record<string, unknown>,
   ) => {
     const message = status.message as string | undefined;
-    const is429 =
-      typeof message === "string" && /429|too many requests/i.test(message);
+    const is429 = isStatusMessageRateLimited(message);
     if (!is429) return;
 
     reloadFromDisk();
     if (store.lastUsedKeyId) {
       recordRateLimit(store, store.lastUsedKeyId);
       const stateForBlacklist = sessions.get(sessionID);
-      if (stateForBlacklist?.currentModelId) {
-        recordModelRateLimit(
-          store,
-          store.lastUsedKeyId,
-          stateForBlacklist.currentModelId,
-        );
+      const modelForBlacklist =
+        stateForBlacklist?.currentModelId ??
+        stateForBlacklist?.activeChainModelId;
+      if (modelForBlacklist) {
+        recordModelRateLimit(store, store.lastUsedKeyId, modelForBlacklist);
       }
     }
-    saveStore(store, config);
+    safeSaveStore();
 
     const state = sessions.get(sessionID);
     if (!state) return;
@@ -500,7 +544,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
                 headers: { Authorization: `Bearer ${key}` },
               });
               if (!res.ok) return { type: "failed" };
-            } catch {
+            } catch (err) {
+              console.debug("[nim-rotator] authorize fetch failed:", err);
               return { type: "failed" };
             }
 
@@ -523,7 +568,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
         if (prevKeyId && prevKeyId !== next.key.id) {
           resetRateLimit(store, prevKeyId);
         }
-        saveStore(store, config);
+        safeSaveStore();
       }
       if (modelIdForRotation && _input.sessionID) {
         const state = getState(_input.sessionID);
@@ -568,6 +613,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       };
 
       state.activeChainKey = activeChainKeyStr;
+      state.activeChainModelId = target.id;
       state.attemptIndex = desiredIndex;
       state.pendingRetryIndex = undefined;
       state.lastUserMessageID = output.message.id;
@@ -578,7 +624,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
         const next = getNextKey(store, config);
         if (next) {
           output.env.NVIDIA_API_KEY = next.key.key;
-          saveStore(store, config);
+          safeSaveStore();
         }
       }
     },
@@ -615,7 +661,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
       if (event.type === "session.idle") {
         const sessionID = (event.properties as Record<string, unknown>)
           ?.sessionID as string;
-        if (sessionID) cleanupSession(sessionID);
+        if (!sessionID) return;
+        const state = sessions.get(sessionID);
+        if (!state) return;
+        if (state.inRetry) return;
+        if (state.pendingRetryIndex !== undefined) return;
+        cleanupSession(sessionID);
       }
 
       if (event.type === "session.deleted") {

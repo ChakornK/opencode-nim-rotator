@@ -1,6 +1,6 @@
 export interface ModelBlacklistEntry {
-  blacklistedUntil: number;
-  nextDurationMs: number;
+  readonly blacklistedUntil: number;
+  readonly nextDurationMs: number;
 }
 
 export interface ApiKeyEntry {
