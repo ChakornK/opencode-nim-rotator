@@ -9,7 +9,6 @@ export interface ApiKeyEntry {
   key: string;
   createdAt: number;
   lastUsedAt?: number;
-  failureCount: number;
   rateLimitCount: number;
   enabled: boolean;
   modelBlacklist?: { [modelId: string]: ModelBlacklistEntry };
@@ -48,5 +47,4 @@ export interface ExportPayload {
 export type KeyStoreConfig = {
   storePath?: string;
   rotationStrategy?: "round-robin" | "least-failures";
-  maxFailuresBeforeDisable?: number;
 };

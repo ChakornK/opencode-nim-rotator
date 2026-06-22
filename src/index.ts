@@ -4,7 +4,6 @@ import {
   saveStore,
   addKey,
   getNextKey,
-  recordFailure,
   getActiveKeys,
   getDefaultStore,
   recordRateLimit,
@@ -147,15 +146,10 @@ function modelKey(model: { providerID: string; modelID: string }): string {
   return `${model.providerID}/${model.modelID}`;
 }
 
-const subAgentCache = new Map<string, boolean>();
-
 async function isSubagentSession(
   client: PluginInput["client"],
   sessionID: string,
 ): Promise<boolean> {
-  const cached = subAgentCache.get(sessionID);
-  if (cached !== undefined) return cached;
-  let result = false;
   try {
     const res = await (
       client.session as unknown as {
@@ -166,14 +160,11 @@ async function isSubagentSession(
       res && typeof res === "object" && "data" in res
         ? (res as { data: unknown }).data
         : res;
-    if (data && typeof data === "object") {
-      result = (data as Record<string, unknown>)?.parentID !== undefined;
-    }
+    if (!data || typeof data !== "object") return false;
+    return (data as Record<string, unknown>)?.parentID !== undefined;
   } catch {
-    result = false;
+    return false;
   }
-  subAgentCache.set(sessionID, result);
-  return result;
 }
 
 function findChainIndex(
@@ -223,7 +214,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   };
 
-  const activeKeys = getActiveKeys(store, config);
+  const activeKeys = getActiveKeys(store);
 
   if (activeKeys.length === 0) {
     const envKey = process.env.NVIDIA_API_KEY;
@@ -268,7 +259,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const cleanupSession = (sessionID: string) => {
     sessions.delete(sessionID);
-    subAgentCache.delete(sessionID);
   };
 
   const triggerRetry = async (
@@ -364,21 +354,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   };
 
-  const isRateLimit429Error = (error: unknown): boolean => {
-    if (!error || typeof error !== "object") return false;
-    return extractStatus(error) === 429;
-  };
-
   const is429Error = (error: unknown): boolean => {
     if (!error || typeof error !== "object") return false;
-    const statusCode = extractStatus(error);
-    if (statusCode === 429) return true;
-    const rec = error as Record<string, unknown>;
-    if (rec.name === "APIError") {
-      const data = rec.data as Record<string, unknown> | undefined;
-      return data?.isRetryable === true;
-    }
-    return false;
+    return extractStatus(error) === 429;
   };
 
   const handleSessionError = async (event: Record<string, unknown>) => {
@@ -391,19 +369,16 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (is429Error(error)) {
       reloadFromDisk();
       if (store.lastUsedKeyId) {
-        recordFailure(store, store.lastUsedKeyId);
         recordRateLimit(store, store.lastUsedKeyId);
-        if (isRateLimit429Error(error)) {
-          const stateForBlacklist = sessionID
-            ? sessions.get(sessionID)
-            : undefined;
-          if (stateForBlacklist?.currentModelId) {
-            recordModelRateLimit(
-              store,
-              store.lastUsedKeyId,
-              stateForBlacklist.currentModelId,
-            );
-          }
+        const stateForBlacklist = sessionID
+          ? sessions.get(sessionID)
+          : undefined;
+        if (stateForBlacklist?.currentModelId) {
+          recordModelRateLimit(
+            store,
+            store.lastUsedKeyId,
+            stateForBlacklist.currentModelId,
+          );
         }
       }
       saveStore(store, config);
@@ -455,7 +430,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
     reloadFromDisk();
     if (store.lastUsedKeyId) {
-      recordFailure(store, store.lastUsedKeyId);
       recordRateLimit(store, store.lastUsedKeyId);
       const stateForBlacklist = sessions.get(sessionID);
       if (stateForBlacklist?.currentModelId) {
@@ -609,6 +583,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
         if (statusType === "idle" && sessionID) {
           const state = sessions.get(sessionID);
           if (!state) return;
+          state.rateLimitCount = 0;
           if (state.inRetry) return;
           if (state.pendingRetryIndex !== undefined) return;
           cleanupSession(sessionID);

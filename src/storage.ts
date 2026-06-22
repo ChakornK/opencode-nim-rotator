@@ -23,7 +23,6 @@ const DEFAULT_STORE_PATH = join(
   "opencode",
   "nim-rotator-keys.json",
 );
-export const DEFAULT_MAX_FAILURES = 5;
 export const MODEL_BLACKLIST_BASE_DURATION_MS = 30_000;
 export const MODEL_BLACKLIST_MAX_DURATION_MS = 60 * 60 * 1000;
 const MODEL_BLACKLIST_ESCALATION = 1.5;
@@ -91,7 +90,7 @@ export function loadStore(config?: KeyStoreConfig): KeyStore | null {
       ) {
         store.currentIndex = 0;
       }
-      return {
+      const built: KeyStore = {
         ...getDefaultStore(),
         ...store,
         keys: Array.isArray(store.keys)
@@ -110,7 +109,7 @@ export function loadStore(config?: KeyStoreConfig): KeyStore | null {
                         [modelId: string]: ModelBlacklistEntry;
                       })
                     : undefined,
-              };
+              } as ApiKeyEntry;
             })
           : [],
         fallbackChain: Array.isArray(store.fallbackChain)
@@ -123,6 +122,8 @@ export function loadStore(config?: KeyStoreConfig): KeyStore | null {
             ? store.maxRateLimitFailures
             : getDefaultStore().maxRateLimitFailures,
       };
+      pruneAllExpiredBlacklists(built);
+      return built;
     }
   } catch (err) {
     console.error(`[nim-rotator] Failed to load store at "${storePath}":`, err);
@@ -132,6 +133,7 @@ export function loadStore(config?: KeyStoreConfig): KeyStore | null {
 
 export function saveStore(store: KeyStore, config?: KeyStoreConfig): void {
   const storePath = resolveStorePath(config);
+  pruneAllExpiredBlacklists(store);
   const dir = dirname(storePath);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -175,7 +177,6 @@ export function addKey(store: KeyStore, name: string, key: string): void {
     name,
     key,
     createdAt: Date.now(),
-    failureCount: 0,
     rateLimitCount: 0,
     enabled: true,
   };
@@ -208,21 +209,6 @@ export function toggleKey(
   if (entry) entry.enabled = enabled ?? !entry.enabled;
 }
 
-export function getMaxFailures(config?: KeyStoreConfig): number {
-  if (
-    typeof config?.maxFailuresBeforeDisable === "number" &&
-    config.maxFailuresBeforeDisable >= 0
-  ) {
-    return config.maxFailuresBeforeDisable;
-  }
-  const fromEnv = process.env.NIM_ROTATOR_MAX_FAILURES;
-  if (fromEnv !== undefined) {
-    const parsed = Number(fromEnv);
-    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-  }
-  return DEFAULT_MAX_FAILURES;
-}
-
 export function isKeyBlacklisted(
   entry: ApiKeyEntry,
   modelId: string | undefined,
@@ -235,16 +221,9 @@ export function isKeyBlacklisted(
 
 export function getActiveKeys(
   store: KeyStore,
-  config?: KeyStoreConfig,
   modelId?: string,
 ): ApiKeyEntry[] {
-  const maxFailures = getMaxFailures(config);
-  return store.keys.filter(
-    (k) =>
-      k.enabled &&
-      k.failureCount < maxFailures &&
-      !isKeyBlacklisted(k, modelId),
-  );
+  return store.keys.filter((k) => k.enabled && !isKeyBlacklisted(k, modelId));
 }
 
 export function getNextKey(
@@ -252,7 +231,7 @@ export function getNextKey(
   config?: KeyStoreConfig,
   modelId?: string,
 ): { key: ApiKeyEntry; index: number } | null {
-  const active = getActiveKeys(store, config, modelId);
+  const active = getActiveKeys(store, modelId);
   if (active.length === 0) return null;
 
   const strategy =
@@ -260,9 +239,6 @@ export function getNextKey(
 
   if (strategy === "least-failures") {
     const sorted = [...active].sort((a, b) => {
-      if (a.failureCount !== b.failureCount) {
-        return a.failureCount - b.failureCount;
-      }
       return (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0);
     });
     const best = sorted[0];
@@ -283,18 +259,8 @@ export function getNextKey(
   return { key: selected, index: realIdx };
 }
 
-export function recordFailure(store: KeyStore, keyId: string): void {
-  const entry = store.keys.find((k) => k.id === keyId);
-  if (!entry) return;
-  entry.failureCount++;
-  if (entry.failureCount >= getMaxFailures()) {
-    entry.enabled = false;
-  }
-}
-
 export function resetFailures(store: KeyStore, keyId?: string): void {
   const reset = (entry: ApiKeyEntry) => {
-    entry.failureCount = 0;
     entry.rateLimitCount = 0;
     delete entry.modelBlacklist;
   };
@@ -329,8 +295,12 @@ export function recordModelRateLimit(
   const slot = entry.modelBlacklist[modelId];
   if (slot && slot.blacklistedUntil > now) {
     const remaining = slot.blacklistedUntil - now;
-    slot.blacklistedUntil =
-      now + Math.max(remaining, MODEL_BLACKLIST_BASE_DURATION_MS);
+    const extension = Math.max(remaining, MODEL_BLACKLIST_BASE_DURATION_MS);
+    slot.blacklistedUntil = now + extension;
+    slot.nextDurationMs = Math.min(
+      extension * MODEL_BLACKLIST_ESCALATION,
+      MODEL_BLACKLIST_MAX_DURATION_MS,
+    );
     return;
   }
   const previousNext = slot?.nextDurationMs ?? MODEL_BLACKLIST_BASE_DURATION_MS;
@@ -357,7 +327,24 @@ export function clearModelBlacklist(
   }
 }
 
-export function pruneExpiredModelBlacklists(
+export function pruneAllExpiredBlacklists(
+  store: KeyStore,
+  now: number = Date.now(),
+): void {
+  for (const entry of store.keys) {
+    if (!entry.modelBlacklist) continue;
+    for (const [modelId, slot] of Object.entries(entry.modelBlacklist)) {
+      if (slot.blacklistedUntil <= now) {
+        delete entry.modelBlacklist[modelId];
+      }
+    }
+    if (Object.keys(entry.modelBlacklist).length === 0) {
+      delete entry.modelBlacklist;
+    }
+  }
+}
+
+export function pruneExpiredBlacklistsForModel(
   store: KeyStore,
   modelId: string,
   now: number = Date.now(),

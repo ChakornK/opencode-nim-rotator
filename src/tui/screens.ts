@@ -13,8 +13,6 @@ import {
 } from "../themes.js";
 import {
   addKey,
-  getActiveKeys,
-  getMaxFailures,
   readAndValidateImportFile,
   validateImportPayload,
   removeKey,
@@ -48,13 +46,8 @@ import {
   addFallbackModel,
 } from "./actions.js";
 
-function keyStatus(entry: { enabled: boolean; failureCount: number }): string {
-  const maxFails = getMaxFailures();
-  return !entry.enabled
-    ? "OFF"
-    : entry.failureCount >= maxFails
-      ? "FAIL"
-      : "OK";
+function keyStatus(entry: { enabled: boolean }): string {
+  return !entry.enabled ? "OFF" : "OK";
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +124,7 @@ export function buildMainMenu(): ScreenContent {
 export function buildKeySelector(): ScreenContent {
   const options: SelectOption[] = state.store.keys.map((entry) => ({
     name: `${entry.name} [${keyStatus(entry)}]`,
-    description: `${maskKey(entry.key)} fails:${entry.failureCount} rl:${entry.rateLimitCount} ${entry.lastUsedAt ? new Date(entry.lastUsedAt).toLocaleString() : "never used"}`,
+    description: `${maskKey(entry.key)} rl:${entry.rateLimitCount} ${entry.lastUsedAt ? new Date(entry.lastUsedAt).toLocaleString() : "never used"}`,
     value: entry.id,
   }));
 
