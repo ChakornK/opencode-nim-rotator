@@ -295,10 +295,10 @@ export function recordModelRateLimit(
   const slot = entry.modelBlacklist[modelId];
   if (slot && slot.blacklistedUntil > now) {
     const remaining = slot.blacklistedUntil - now;
-    const extension = Math.max(remaining, MODEL_BLACKLIST_BASE_DURATION_MS);
-    slot.blacklistedUntil = now + extension;
+    slot.blacklistedUntil =
+      now + Math.max(remaining, MODEL_BLACKLIST_BASE_DURATION_MS);
     slot.nextDurationMs = Math.min(
-      extension * MODEL_BLACKLIST_ESCALATION,
+      slot.nextDurationMs * MODEL_BLACKLIST_ESCALATION,
       MODEL_BLACKLIST_MAX_DURATION_MS,
     );
     return;

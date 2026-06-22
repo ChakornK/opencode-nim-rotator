@@ -162,9 +162,30 @@ async function isSubagentSession(
         : res;
     if (!data || typeof data !== "object") return false;
     return (data as Record<string, unknown>)?.parentID !== undefined;
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[nim-rotator] isSubagentSession failed for ${sessionID}:`,
+      err,
+    );
     return false;
   }
+}
+
+const subAgentCache = new Map<string, number>();
+
+async function isSubagentSessionCached(
+  client: PluginInput["client"],
+  sessionID: string,
+): Promise<boolean> {
+  const cached = subAgentCache.get(sessionID);
+  if (cached !== undefined && cached > Date.now()) {
+    return true;
+  }
+  const result = await isSubagentSession(client, sessionID);
+  if (result) {
+    subAgentCache.set(sessionID, Date.now() + 60_000);
+  }
+  return result;
 }
 
 function findChainIndex(
@@ -367,16 +388,17 @@ export const NvidiaNimKeyRotator: Plugin = async (
       (event.sessionID as string | undefined);
 
     if (is429Error(error)) {
+      const errorKeyId = store.lastUsedKeyId;
       reloadFromDisk();
-      if (store.lastUsedKeyId) {
-        recordRateLimit(store, store.lastUsedKeyId);
+      if (errorKeyId) {
+        recordRateLimit(store, errorKeyId);
         const stateForBlacklist = sessionID
           ? sessions.get(sessionID)
           : undefined;
         if (stateForBlacklist?.currentModelId) {
           recordModelRateLimit(
             store,
-            store.lastUsedKeyId,
+            errorKeyId,
             stateForBlacklist.currentModelId,
           );
         }
@@ -394,7 +416,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
     if (state.inRetry) return;
 
-    const isSubagent = await isSubagentSession(client, sessionID);
+    const isSubagent = await isSubagentSessionCached(client, sessionID);
     const subagentRateLimited =
       isSubagent && state.rateLimitCount >= store.maxRateLimitFailures;
 
@@ -449,16 +471,15 @@ export const NvidiaNimKeyRotator: Plugin = async (
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
-    if (await isSubagentSession(client, sessionID)) {
+    if (await isSubagentSessionCached(client, sessionID)) {
       return;
     }
-
-    state.aborting = true;
-    void client.session.abort({ path: { id: sessionID } });
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
     const retried = await triggerRetry(sessionID, state, reason);
     if (!retried) {
+      state.aborting = true;
+      void client.session.abort({ path: { id: sessionID } });
       cleanupSession(sessionID);
     }
   };
