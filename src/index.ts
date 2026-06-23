@@ -263,6 +263,14 @@ export const NvidiaNimKeyRotator: Plugin = async (
         }
       }
 
+      try {
+        await client.session.abort({ path: { id: sessionID } });
+      } catch (abortErr) {
+        console.debug(`[nim-rotator] abort failed for ${sessionID}:`, abortErr);
+      }
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
       await client.session.prompt({
         path: { id: sessionID },
         body: {
