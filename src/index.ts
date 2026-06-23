@@ -473,15 +473,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
       let desiredIndex: number;
       if (state.pendingRetryIndex !== undefined) {
-        if (
-          requestedModel?.modelID === state.lastFailedModelId ||
-          chainIndex === state.pendingRetryIndex
-        ) {
-          desiredIndex = state.pendingRetryIndex;
-        } else {
-          desiredIndex = chainIndex >= 0 ? chainIndex : 0;
-          state.pendingRetryIndex = undefined;
-        }
+        desiredIndex = state.pendingRetryIndex;
       } else {
         desiredIndex = chainIndex >= 0 ? chainIndex : 0;
       }
