@@ -20,6 +20,7 @@ function makeState(
     activeChainModelId: undefined,
     rateLimitCount: 0,
     currentModelId: undefined,
+    lastFailedModelId: undefined,
     ...overrides,
   };
 }

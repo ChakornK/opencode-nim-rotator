@@ -17,23 +17,12 @@ import {
   is429Error,
   isStatusMessageRateLimited,
   shouldRetryForError,
+  type SessionState,
 } from "./errors.js";
 
 const PROVIDER_ID = "nvidia";
 const NIM_BASE_URL = "https://integrate.api.nvidia.com";
 const VALID_STRATEGIES = ["round-robin", "least-failures"] as const;
-
-interface SessionState {
-  attemptIndex: number;
-  inRetry: boolean;
-  aborting: boolean;
-  pendingRetryIndex: number | undefined;
-  lastUserMessageID: string | undefined;
-  activeChainKey: string | undefined;
-  activeChainModelId: string | undefined;
-  rateLimitCount: number;
-  currentModelId: string | undefined;
-}
 
 function isValidStrategy(
   val: unknown,
@@ -193,6 +182,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       activeChainModelId: undefined,
       rateLimitCount: 0,
       currentModelId: undefined,
+      lastFailedModelId: undefined,
     };
     sessions.set(sessionID, next);
     return next;
@@ -317,6 +307,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
         if (modelForBlacklist) {
           recordModelRateLimit(store, errorKeyId, modelForBlacklist);
         }
+        if (stateForBlacklist) {
+          stateForBlacklist.lastFailedModelId = modelForBlacklist;
+        }
       }
       safeSaveStore();
     }
@@ -380,6 +373,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
         stateForBlacklist?.activeChainModelId;
       if (modelForBlacklist) {
         recordModelRateLimit(store, store.lastUsedKeyId, modelForBlacklist);
+      }
+      if (stateForBlacklist) {
+        stateForBlacklist.lastFailedModelId = modelForBlacklist;
       }
     }
     safeSaveStore();
@@ -475,8 +471,21 @@ export const NvidiaNimKeyRotator: Plugin = async (
         return;
       }
 
-      const desiredIndex =
-        state.pendingRetryIndex ?? (chainIndex >= 0 ? chainIndex : 0);
+      let desiredIndex: number;
+      if (state.pendingRetryIndex !== undefined) {
+        if (
+          requestedModel?.modelID === state.lastFailedModelId ||
+          chainIndex === state.pendingRetryIndex
+        ) {
+          desiredIndex = state.pendingRetryIndex;
+        } else {
+          desiredIndex = chainIndex >= 0 ? chainIndex : 0;
+          state.pendingRetryIndex = undefined;
+        }
+      } else {
+        desiredIndex = chainIndex >= 0 ? chainIndex : 0;
+      }
+
       const target = chain[desiredIndex];
       if (!target) {
         cleanupSession(sessionID);
@@ -491,7 +500,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
       state.activeChainKey = activeChainKeyStr;
       state.activeChainModelId = target.id;
       state.attemptIndex = desiredIndex;
-      state.pendingRetryIndex = undefined;
       state.lastUserMessageID = output.message.id;
     },
     "shell.env": async (_input, output) => {
@@ -527,8 +535,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
           const state = sessions.get(sessionID);
           if (!state) return;
           state.rateLimitCount = 0;
+          state.pendingRetryIndex = undefined;
+          state.lastFailedModelId = undefined;
           if (state.inRetry) return;
-          if (state.pendingRetryIndex !== undefined) return;
           cleanupSession(sessionID);
           return;
         }
@@ -541,7 +550,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
         const state = sessions.get(sessionID);
         if (!state) return;
         if (state.inRetry) return;
-        if (state.pendingRetryIndex !== undefined) return;
+        state.pendingRetryIndex = undefined;
+        state.lastFailedModelId = undefined;
         cleanupSession(sessionID);
       }
 

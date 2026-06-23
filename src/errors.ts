@@ -8,6 +8,7 @@ export interface SessionState {
   activeChainModelId: string | undefined;
   rateLimitCount: number;
   currentModelId: string | undefined;
+  lastFailedModelId: string | undefined;
 }
 
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
