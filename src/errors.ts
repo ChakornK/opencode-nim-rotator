@@ -1,11 +1,9 @@
 export interface SessionState {
   attemptIndex: number;
-  timeoutTriggered: boolean;
   inRetry: boolean;
   aborting: boolean;
   pendingRetryIndex: number | undefined;
   lastUserMessageID: string | undefined;
-  timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   activeChainKey: string | undefined;
   activeChainModelId: string | undefined;
   rateLimitCount: number;
@@ -57,7 +55,6 @@ export function describeError(
   const rec = error as Record<string, unknown>;
 
   if (rec.name === "MessageAbortedError") {
-    if (state.timeoutTriggered) return "Request timed out after 60s";
     const msg =
       typeof (rec.data as Record<string, unknown>)?.message === "string"
         ? ((rec.data as Record<string, unknown>).message as string)
@@ -121,7 +118,6 @@ export function shouldRetryForError(
   const rec = error as Record<string, unknown>;
 
   if (rec.name === "MessageAbortedError") {
-    if (state.timeoutTriggered) return true;
     const msg =
       typeof (rec.data as Record<string, unknown>)?.message === "string"
         ? ((rec.data as Record<string, unknown>).message as string)

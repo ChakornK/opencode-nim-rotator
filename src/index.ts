@@ -25,12 +25,10 @@ const VALID_STRATEGIES = ["round-robin", "least-failures"] as const;
 
 interface SessionState {
   attemptIndex: number;
-  timeoutTriggered: boolean;
   inRetry: boolean;
   aborting: boolean;
   pendingRetryIndex: number | undefined;
   lastUserMessageID: string | undefined;
-  timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   activeChainKey: string | undefined;
   activeChainModelId: string | undefined;
   rateLimitCount: number;
@@ -79,8 +77,11 @@ async function isSubagentSessionCached(
   sessionID: string,
 ): Promise<boolean> {
   const cached = subAgentCache.get(sessionID);
-  if (cached !== undefined && cached > Date.now()) {
-    return true;
+  if (cached !== undefined) {
+    if (cached > Date.now()) {
+      return true;
+    }
+    subAgentCache.delete(sessionID);
   }
   const result = await isSubagentSession(client, sessionID);
   if (result) {
@@ -184,12 +185,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (existing) return existing;
     const next: SessionState = {
       attemptIndex: 0,
-      timeoutTriggered: false,
       inRetry: false,
       aborting: false,
       pendingRetryIndex: undefined,
       lastUserMessageID: undefined,
-      timeoutHandle: undefined,
       activeChainKey: undefined,
       activeChainModelId: undefined,
       rateLimitCount: 0,

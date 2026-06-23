@@ -94,23 +94,22 @@ export function loadStore(config?: KeyStoreConfig): KeyStore | null {
         ...getDefaultStore(),
         ...store,
         keys: Array.isArray(store.keys)
-          ? store.keys.map((k) => {
-              const kr = k as unknown as Record<string, unknown>;
-              return {
-                ...k,
-                rateLimitCount:
-                  typeof k.rateLimitCount === "number" ? k.rateLimitCount : 0,
-                modelBlacklist:
-                  k &&
-                  typeof k === "object" &&
-                  kr.modelBlacklist &&
-                  typeof kr.modelBlacklist === "object"
-                    ? (kr.modelBlacklist as {
-                        [modelId: string]: ModelBlacklistEntry;
-                      })
-                    : undefined,
-              } as ApiKeyEntry;
-            })
+          ? store.keys
+              .filter((k) => k !== null && typeof k === "object")
+              .map((k) => {
+                const kr = k as unknown as Record<string, unknown>;
+                return {
+                  ...k,
+                  rateLimitCount:
+                    typeof k.rateLimitCount === "number" ? k.rateLimitCount : 0,
+                  modelBlacklist:
+                    kr.modelBlacklist && typeof kr.modelBlacklist === "object"
+                      ? (kr.modelBlacklist as {
+                          [modelId: string]: ModelBlacklistEntry;
+                        })
+                      : undefined,
+                } as ApiKeyEntry;
+              })
           : [],
         fallbackChain: Array.isArray(store.fallbackChain)
           ? store.fallbackChain

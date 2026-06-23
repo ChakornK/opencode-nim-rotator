@@ -12,12 +12,10 @@ function makeState(
 ) {
   return {
     attemptIndex: 0,
-    timeoutTriggered: false,
     inRetry: false,
     aborting: false,
     pendingRetryIndex: undefined,
     lastUserMessageID: undefined,
-    timeoutHandle: undefined,
     activeChainKey: undefined,
     activeChainModelId: undefined,
     rateLimitCount: 0,
@@ -95,9 +93,7 @@ describe("is429Error", () => {
 describe("shouldRetryForError", () => {
   it("retries on MessageAbortedError with timeout", () => {
     const error = { name: "MessageAbortedError", data: { message: "timeout" } };
-    expect(
-      shouldRetryForError(error, makeState({ timeoutTriggered: true })),
-    ).toBe(true);
+    expect(shouldRetryForError(error, makeState())).toBe(true);
   });
 
   it("retries on APIError with isRetryable", () => {
@@ -161,7 +157,7 @@ describe("shouldRetryForError", () => {
 describe("describeError", () => {
   it("describes MessageAbortedError timeout", () => {
     const error = { name: "MessageAbortedError", data: { message: "timeout" } };
-    expect(describeError(error, makeState({ timeoutTriggered: true }), 3)).toBe(
+    expect(describeError(error, makeState(), 3)).toBe(
       "Request timed out after 60s",
     );
   });
