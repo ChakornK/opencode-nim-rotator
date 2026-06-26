@@ -22,6 +22,7 @@ function makeState(
     currentModelId: undefined,
     lastFailedModelId: undefined,
     lastErrorHandledAt: 0,
+    createdAt: 0,
     ...overrides,
   };
 }

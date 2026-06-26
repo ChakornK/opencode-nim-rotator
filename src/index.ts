@@ -62,6 +62,8 @@ async function isSubagentSession(
 const SUBAGENT_CACHE_MAX_SIZE = 1000;
 const SUBAGENT_CACHE_TTL_MS = 60_000;
 const ERROR_DEDUP_WINDOW_MS = 500;
+const SESSIONS_MAX_SIZE = 500;
+const SESSIONS_MAX_AGE_MS = 10 * 60 * 1000;
 
 const subAgentCache = new Map<string, number>();
 
@@ -180,6 +182,23 @@ export const NvidiaNimKeyRotator: Plugin = async (
   const getState = (sessionID: string): SessionState => {
     const existing = sessions.get(sessionID);
     if (existing) return existing;
+    if (sessions.size >= SESSIONS_MAX_SIZE) {
+      const now = Date.now();
+      let oldestId: string | undefined;
+      let oldestTime = Infinity;
+      for (const [id, s] of sessions) {
+        if (s.createdAt < oldestTime) {
+          oldestTime = s.createdAt;
+          oldestId = id;
+        }
+      }
+      if (oldestId) sessions.delete(oldestId);
+      for (const [id, s] of sessions) {
+        if (now - s.createdAt > SESSIONS_MAX_AGE_MS) {
+          sessions.delete(id);
+        }
+      }
+    }
     const next: SessionState = {
       attemptIndex: 0,
       inRetry: false,
@@ -192,6 +211,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       currentModelId: undefined,
       lastFailedModelId: undefined,
       lastErrorHandledAt: 0,
+      createdAt: Date.now(),
     };
     sessions.set(sessionID, next);
     return next;
