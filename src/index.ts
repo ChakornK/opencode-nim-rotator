@@ -59,6 +59,9 @@ async function isSubagentSession(
   }
 }
 
+const SUBAGENT_CACHE_MAX_SIZE = 1000;
+const SUBAGENT_CACHE_TTL_MS = 60_000;
+
 const subAgentCache = new Map<string, number>();
 
 async function isSubagentSessionCached(
@@ -74,7 +77,13 @@ async function isSubagentSessionCached(
   }
   const result = await isSubagentSession(client, sessionID);
   if (result) {
-    subAgentCache.set(sessionID, Date.now() + 60_000);
+    if (subAgentCache.size >= SUBAGENT_CACHE_MAX_SIZE) {
+      const firstKey = subAgentCache.keys().next().value;
+      if (firstKey !== undefined) {
+        subAgentCache.delete(firstKey);
+      }
+    }
+    subAgentCache.set(sessionID, Date.now() + SUBAGENT_CACHE_TTL_MS);
   }
   return result;
 }
