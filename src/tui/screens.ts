@@ -681,11 +681,6 @@ export function buildFallbackSettings(): ScreenContent {
 
   const options: SelectOption[] = [
     {
-      name: `Current: ${current}`,
-      description: `Fallback activates after ${current} consecutive rate limit${current === 1 ? "" : "s"}`,
-      value: "current",
-    },
-    {
       name: "+1",
       description: `Increase threshold to ${current + 1}`,
       value: "inc",
@@ -703,19 +698,19 @@ export function buildFallbackSettings(): ScreenContent {
     56,
     8,
     options,
-    state.fallbackSettingsIndex,
+    Math.max(0, state.fallbackSettingsIndex - 1),
     (idx, opt) => {
       if (opt.value === "inc") {
         state.store.maxRateLimitFailures = current + 1;
         safeSaveStore();
         refreshStore();
-        state.fallbackSettingsIndex = idx;
+        state.fallbackSettingsIndex = idx + 1;
         callRenderApp();
       } else if (opt.value === "dec") {
         state.store.maxRateLimitFailures = Math.max(1, current - 1);
         safeSaveStore();
         refreshStore();
-        state.fallbackSettingsIndex = idx;
+        state.fallbackSettingsIndex = idx + 1;
         callRenderApp();
       } else if (opt.value === "back") {
         navigate("fallback-menu");
@@ -724,7 +719,7 @@ export function buildFallbackSettings(): ScreenContent {
   );
 
   events(selector).on("selectionChanged", (index: number) => {
-    state.fallbackSettingsIndex = index;
+    state.fallbackSettingsIndex = index + 1;
   });
 
   return {
@@ -733,6 +728,10 @@ export function buildFallbackSettings(): ScreenContent {
       Text({
         content: " Fallback Settings:",
         fg: theme.primary,
+      }),
+      Text({
+        content: ` Current: ${current} — fallback after ${current} consecutive rate limit${current === 1 ? "" : "s"}`,
+        fg: theme.textMuted,
       }),
       selector,
     ),
