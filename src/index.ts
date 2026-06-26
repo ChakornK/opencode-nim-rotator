@@ -206,33 +206,25 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       try {
-        const res = await (
-          client.session as unknown as {
-            get: (p: { path: { id: string } }) => Promise<unknown>;
-          }
-        ).get({ path: { id: sessionID } });
+        const res = await client.session.status({});
         const data =
           res && typeof res === "object" && "data" in res
             ? (res as { data: unknown }).data
             : res;
         if (data && typeof data === "object") {
-          const session = data as Record<string, unknown>;
-          const status = (session as Record<string, unknown>)?.status;
-          if (typeof status === "object" && status !== null) {
-            const statusObj = status as Record<string, unknown>;
-            if (statusObj?.type === "idle") {
-              return true;
-            }
-            if (
-              !statusObj?.type &&
-              !(session as Record<string, unknown>)?.busy
-            ) {
-              return true;
-            }
+          const statusMap = data as Record<string, unknown>;
+          const status = statusMap[sessionID] as
+            | Record<string, unknown>
+            | undefined;
+          if (status?.type === "idle") {
+            return true;
+          }
+          if (!status) {
+            return true;
           }
         }
       } catch {
-        // session might not exist yet, keep polling
+        // status endpoint might not be available, keep polling
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
     }
