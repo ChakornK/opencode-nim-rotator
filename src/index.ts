@@ -192,6 +192,49 @@ export const NvidiaNimKeyRotator: Plugin = async (
     sessions.delete(sessionID);
   };
 
+  const waitForSessionIdle = async (
+    sessionID: string,
+    timeoutMs: number = 2000,
+  ): Promise<boolean> => {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const res = await (
+          client.session as unknown as {
+            get: (p: { path: { id: string } }) => Promise<unknown>;
+          }
+        ).get({ path: { id: sessionID } });
+        const data =
+          res && typeof res === "object" && "data" in res
+            ? (res as { data: unknown }).data
+            : res;
+        if (data && typeof data === "object") {
+          const session = data as Record<string, unknown>;
+          const status = (session as Record<string, unknown>)?.status;
+          if (typeof status === "object" && status !== null) {
+            const statusObj = status as Record<string, unknown>;
+            if (statusObj?.type === "idle") {
+              return true;
+            }
+            if (
+              !statusObj?.type &&
+              !(session as Record<string, unknown>)?.busy
+            ) {
+              return true;
+            }
+          }
+        }
+      } catch {
+        // session might not exist yet, keep polling
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    console.debug(
+      `[nim-rotator] waitForSessionIdle timed out for ${sessionID}`,
+    );
+    return false;
+  };
+
   const triggerRetry = async (
     sessionID: string,
     state: SessionState,
@@ -269,7 +312,14 @@ export const NvidiaNimKeyRotator: Plugin = async (
         console.debug(`[nim-rotator] abort failed for ${sessionID}:`, abortErr);
       }
 
-      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      const idle = await waitForSessionIdle(sessionID);
+      if (!idle) {
+        console.debug(
+          `[nim-rotator] session ${sessionID} did not go idle after abort`,
+        );
+        state.pendingRetryIndex = undefined;
+        return false;
+      }
 
       await client.session.prompt({
         path: { id: sessionID },
