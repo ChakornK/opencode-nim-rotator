@@ -703,23 +703,29 @@ export function buildFallbackSettings(): ScreenContent {
     56,
     8,
     options,
-    0,
-    (_idx, opt) => {
+    state.fallbackSettingsIndex,
+    (idx, opt) => {
       if (opt.value === "inc") {
         state.store.maxRateLimitFailures = current + 1;
         safeSaveStore();
         refreshStore();
+        state.fallbackSettingsIndex = idx;
         callRenderApp();
       } else if (opt.value === "dec") {
         state.store.maxRateLimitFailures = Math.max(1, current - 1);
         safeSaveStore();
         refreshStore();
+        state.fallbackSettingsIndex = idx;
         callRenderApp();
       } else if (opt.value === "back") {
         navigate("fallback-menu");
       }
     },
   );
+
+  events(selector).on("selectionChanged", (index: number) => {
+    state.fallbackSettingsIndex = index;
+  });
 
   return {
     element: Box(
