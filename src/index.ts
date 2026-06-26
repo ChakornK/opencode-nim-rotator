@@ -93,9 +93,7 @@ function findChainIndex(
   model: { providerID: string; modelID: string } | undefined,
 ): number {
   if (!model) return -1;
-  return chain.findIndex(
-    (entry) => entry.id === model.modelID || entry.name === model.modelID,
-  );
+  return chain.findIndex((entry) => entry.id === model.modelID);
 }
 
 export const NvidiaNimKeyRotator: Plugin = async (
