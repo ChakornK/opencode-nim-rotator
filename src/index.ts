@@ -346,10 +346,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const handleSessionError = async (event: Record<string, unknown>) => {
     const props = event.properties as Record<string, unknown> | undefined;
-    const error = event.error ?? props?.error;
-    const sessionID =
-      (props?.sessionID as string | undefined) ??
-      (event.sessionID as string | undefined);
+    const error = props?.error;
+    const sessionID = props?.sessionID as string | undefined;
 
     if (is429Error(error)) {
       const errorKeyId = store.lastUsedKeyId;
