@@ -725,14 +725,17 @@ export function buildFallbackSettings(): ScreenContent {
   return {
     element: Box(
       { flexDirection: "column", gap: 1 },
-      Text({
-        content: " Fallback Settings:",
-        fg: theme.primary,
-      }),
-      Text({
-        content: ` Current: ${current} — fallback after ${current} consecutive rate limit${current === 1 ? "" : "s"}`,
-        fg: theme.textMuted,
-      }),
+      Box(
+        { flexDirection: "column" },
+        Text({
+          content: " Fallback Settings:",
+          fg: theme.primary,
+        }),
+        Text({
+          content: ` Fallback after ${current} consecutive rate limit${current === 1 ? "" : "s"}`,
+          fg: theme.textMuted,
+        }),
+      ),
       selector,
     ),
     helpText: "[Esc] back",
