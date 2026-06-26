@@ -244,7 +244,14 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const chain = store.fallbackChain;
     if (chain.length < 2) return false;
 
-    const nextIndex = (state.attemptIndex + 1) % chain.length;
+    let nextIndex = (state.attemptIndex + 1) % chain.length;
+    if (
+      state.lastFailedModelId &&
+      chain[nextIndex]?.id === state.lastFailedModelId &&
+      chain.length > 2
+    ) {
+      nextIndex = (nextIndex + 1) % chain.length;
+    }
     state.inRetry = true;
     state.pendingRetryIndex = nextIndex;
 
