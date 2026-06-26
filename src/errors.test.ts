@@ -21,6 +21,7 @@ function makeState(
     rateLimitCount: 0,
     currentModelId: undefined,
     lastFailedModelId: undefined,
+    lastErrorHandledAt: 0,
     ...overrides,
   };
 }

@@ -61,6 +61,7 @@ async function isSubagentSession(
 
 const SUBAGENT_CACHE_MAX_SIZE = 1000;
 const SUBAGENT_CACHE_TTL_MS = 60_000;
+const ERROR_DEDUP_WINDOW_MS = 500;
 
 const subAgentCache = new Map<string, number>();
 
@@ -190,6 +191,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       rateLimitCount: 0,
       currentModelId: undefined,
       lastFailedModelId: undefined,
+      lastErrorHandledAt: 0,
     };
     sessions.set(sessionID, next);
     return next;
@@ -305,6 +307,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
         }
       }
 
+      state.aborting = true;
       try {
         await client.session.abort({ path: { id: sessionID } });
       } catch (abortErr) {
@@ -379,6 +382,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
     if (state.inRetry) return;
 
+    const now = Date.now();
+    if (now - state.lastErrorHandledAt < ERROR_DEDUP_WINDOW_MS) return;
+    state.lastErrorHandledAt = now;
+
     if (!shouldRetryForError(error, state)) {
       if (!is429Error(error)) {
         state.rateLimitCount = 0;
@@ -386,38 +393,26 @@ export const NvidiaNimKeyRotator: Plugin = async (
       return;
     }
 
-    let subagentRateLimited = false;
-    if (!is429Error(error)) {
-      const isSubagent = await isSubagentSessionCached(client, sessionID);
-      subagentRateLimited =
-        isSubagent && state.rateLimitCount >= store.maxRateLimitFailures;
-      if (!subagentRateLimited) {
-        state.rateLimitCount = 0;
-        return;
+    if (await isSubagentSessionCached(client, sessionID)) {
+      if (is429Error(error)) {
+        await showToast(
+          "warning",
+          `Subagent rate limited — model switch skipped to preserve parent task`,
+        );
       }
+      return;
     }
 
     if (is429Error(error)) {
       state.rateLimitCount++;
       if (state.rateLimitCount < store.maxRateLimitFailures) return;
-
-      if (await isSubagentSessionCached(client, sessionID)) {
-        await showToast(
-          "warning",
-          `Subagent rate limited — model switch skipped to preserve parent task`,
-        );
-        state.rateLimitCount = 0;
-        return;
-      }
-    } else if (!subagentRateLimited) {
+    } else {
       state.rateLimitCount = 0;
+      return;
     }
 
     const reason = describeError(error, state, store.maxRateLimitFailures);
-    const retried = await triggerRetry(sessionID, state, reason);
-    if (!retried) {
-      cleanupSession(sessionID);
-    }
+    await triggerRetry(sessionID, state, reason);
   };
 
   const handleSessionStatusRetry = async (
@@ -428,40 +423,31 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const is429 = isStatusMessageRateLimited(message);
     if (!is429) return;
 
-    reloadFromDisk();
-    if (store.lastUsedKeyId) {
-      recordRateLimit(store, store.lastUsedKeyId);
-      const stateForBlacklist = sessions.get(sessionID);
-      const modelForBlacklist =
-        stateForBlacklist?.currentModelId ??
-        stateForBlacklist?.activeChainModelId;
-      if (modelForBlacklist) {
-        recordModelRateLimit(store, store.lastUsedKeyId, modelForBlacklist);
-      }
-      if (stateForBlacklist) {
-        stateForBlacklist.lastFailedModelId = modelForBlacklist;
-      }
-    }
-    safeSaveStore();
-
     const state = sessions.get(sessionID);
     if (!state) return;
     if (state.inRetry) return;
-
-    state.rateLimitCount++;
-    if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
     if (await isSubagentSessionCached(client, sessionID)) {
       return;
     }
 
-    const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
-    const retried = await triggerRetry(sessionID, state, reason);
-    if (!retried) {
-      state.aborting = true;
-      void client.session.abort({ path: { id: sessionID } });
-      cleanupSession(sessionID);
+    reloadFromDisk();
+    if (store.lastUsedKeyId) {
+      recordRateLimit(store, store.lastUsedKeyId);
+      const modelForBlacklist =
+        state.currentModelId ?? state.activeChainModelId;
+      if (modelForBlacklist) {
+        recordModelRateLimit(store, store.lastUsedKeyId, modelForBlacklist);
+      }
+      state.lastFailedModelId = modelForBlacklist;
     }
+    safeSaveStore();
+
+    state.rateLimitCount++;
+    if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+    const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
+    await triggerRetry(sessionID, state, reason);
   };
 
   const handleSessionStepFailed = async (event: Record<string, unknown>) => {
@@ -477,26 +463,26 @@ export const NvidiaNimKeyRotator: Plugin = async (
       return;
     }
 
+    const state = sessions.get(sessionID);
+    if (!state) return;
+    if (state.inRetry) return;
+
+    const now = Date.now();
+    if (now - state.lastErrorHandledAt < ERROR_DEDUP_WINDOW_MS) return;
+    state.lastErrorHandledAt = now;
+
     const errorKeyId = store.lastUsedKeyId;
     reloadFromDisk();
     if (errorKeyId) {
       recordRateLimit(store, errorKeyId);
-      const stateForBlacklist = sessions.get(sessionID);
       const modelForBlacklist =
-        stateForBlacklist?.currentModelId ??
-        stateForBlacklist?.activeChainModelId;
+        state.currentModelId ?? state.activeChainModelId;
       if (modelForBlacklist) {
         recordModelRateLimit(store, errorKeyId, modelForBlacklist);
       }
-      if (stateForBlacklist) {
-        stateForBlacklist.lastFailedModelId = modelForBlacklist;
-      }
+      state.lastFailedModelId = modelForBlacklist;
     }
     safeSaveStore();
-
-    const state = sessions.get(sessionID);
-    if (!state) return;
-    if (state.inRetry) return;
 
     if (await isSubagentSessionCached(client, sessionID)) {
       await showToast(
@@ -510,10 +496,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
-    const retried = await triggerRetry(sessionID, state, reason);
-    if (!retried) {
-      cleanupSession(sessionID);
-    }
+    await triggerRetry(sessionID, state, reason);
   };
 
   const hooks: Hooks = {
