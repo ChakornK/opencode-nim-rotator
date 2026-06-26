@@ -417,6 +417,58 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
   };
 
+  const handleSessionStepFailed = async (event: Record<string, unknown>) => {
+    const props = event.properties as Record<string, unknown> | undefined;
+    const sessionID = props?.sessionID as string | undefined;
+    if (!sessionID) return;
+
+    const error = props?.error as Record<string, unknown> | undefined;
+    const errorMessage =
+      typeof error?.message === "string" ? error.message : undefined;
+
+    if (!isStatusMessageRateLimited(errorMessage) && !is429Error(error)) {
+      return;
+    }
+
+    const errorKeyId = store.lastUsedKeyId;
+    reloadFromDisk();
+    if (errorKeyId) {
+      recordRateLimit(store, errorKeyId);
+      const stateForBlacklist = sessions.get(sessionID);
+      const modelForBlacklist =
+        stateForBlacklist?.currentModelId ??
+        stateForBlacklist?.activeChainModelId;
+      if (modelForBlacklist) {
+        recordModelRateLimit(store, errorKeyId, modelForBlacklist);
+      }
+      if (stateForBlacklist) {
+        stateForBlacklist.lastFailedModelId = modelForBlacklist;
+      }
+    }
+    safeSaveStore();
+
+    const state = sessions.get(sessionID);
+    if (!state) return;
+    if (state.inRetry) return;
+
+    if (await isSubagentSessionCached(client, sessionID)) {
+      await showToast(
+        "warning",
+        `Subagent rate limited — model switch skipped to preserve parent task`,
+      );
+      return;
+    }
+
+    state.rateLimitCount++;
+    if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+    const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
+    const retried = await triggerRetry(sessionID, state, reason);
+    if (!retried) {
+      cleanupSession(sessionID);
+    }
+  };
+
   const hooks: Hooks = {
     auth: {
       provider: PROVIDER_ID,
@@ -524,6 +576,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
     event: async ({ event }) => {
       if (event.type === "session.error") {
         await handleSessionError(event as Record<string, unknown>);
+        return;
+      }
+
+      if ((event.type as string) === "session.next.step.failed") {
+        await handleSessionStepFailed(event as Record<string, unknown>);
         return;
       }
 
