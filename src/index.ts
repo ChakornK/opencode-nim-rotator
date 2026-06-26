@@ -353,6 +353,15 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (is429Error(error)) {
       state.rateLimitCount++;
       if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+      if (await isSubagentSessionCached(client, sessionID)) {
+        await showToast(
+          "warning",
+          `Subagent rate limited — model switch skipped to preserve parent task`,
+        );
+        state.rateLimitCount = 0;
+        return;
+      }
     } else if (!subagentRateLimited) {
       state.rateLimitCount = 0;
     }
