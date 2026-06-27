@@ -219,6 +219,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const cleanupSession = (sessionID: string) => {
     sessions.delete(sessionID);
+    subAgentCache.delete(sessionID);
   };
 
   const waitForSessionIdle = async (
