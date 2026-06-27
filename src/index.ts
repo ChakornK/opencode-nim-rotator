@@ -440,7 +440,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
 
     const reason = describeError(error, state, store.maxRateLimitFailures);
-    await triggerRetry(sessionID, state, reason);
+    const triggered = await triggerRetry(sessionID, state, reason);
+    if (!triggered) {
+      console.debug(
+        `[nim-rotator] triggerRetry returned false for ${sessionID}`,
+      );
+    }
   };
 
   const handleSessionStatusRetry = async (
@@ -475,7 +480,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
-    await triggerRetry(sessionID, state, reason);
+    const triggered2 = await triggerRetry(sessionID, state, reason);
+    if (!triggered2) {
+      console.debug(
+        `[nim-rotator] triggerRetry returned false for ${sessionID} (status retry)`,
+      );
+    }
   };
 
   const handleSessionStepFailed = async (event: Record<string, unknown>) => {
@@ -532,7 +542,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
-    await triggerRetry(sessionID, state, reason);
+    const triggered3 = await triggerRetry(sessionID, state, reason);
+    if (!triggered3) {
+      console.debug(
+        `[nim-rotator] triggerRetry returned false for ${sessionID} (step failed)`,
+      );
+    }
   };
 
   const hooks: Hooks = {
