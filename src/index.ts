@@ -398,6 +398,13 @@ export const NvidiaNimKeyRotator: Plugin = async (
         }
       }
       safeSaveStore();
+
+      if (sessionID && (await isSubagentSessionCached(client, sessionID))) {
+        await showToast(
+          "info",
+          `Subagent rate limited — switching to next model in chain`,
+        );
+      }
     }
 
     if (!sessionID) return;
@@ -417,16 +424,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (!shouldRetryForError(error, state)) {
       if (!is429Error(error)) {
         state.rateLimitCount = 0;
-      }
-      return;
-    }
-
-    if (await isSubagentSessionCached(client, sessionID)) {
-      if (is429Error(error)) {
-        await showToast(
-          "warning",
-          `Subagent rate limited — model switch skipped to preserve parent task`,
-        );
       }
       return;
     }
@@ -459,10 +456,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const state = sessions.get(sessionID);
     if (!state) return;
     if (state.inRetry) return;
-
-    if (await isSubagentSessionCached(client, sessionID)) {
-      return;
-    }
 
     reloadFromDisk();
     if (store.lastUsedKeyId) {
@@ -529,14 +522,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
       state.lastFailedModelId = modelForBlacklist;
     }
     safeSaveStore();
-
-    if (await isSubagentSessionCached(client, sessionID)) {
-      await showToast(
-        "warning",
-        `Subagent rate limited — model switch skipped to preserve parent task`,
-      );
-      return;
-    }
 
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
