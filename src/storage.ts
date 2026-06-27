@@ -225,19 +225,10 @@ export function getNextKey(
     config?.rotationStrategy ?? store.rotationStrategy ?? "round-robin";
 
   if (strategy === "least-failures") {
-    const now = Date.now();
-    const scoreBlacklists = (entry: ApiKeyEntry): number => {
-      if (!entry.modelBlacklist) return 0;
-      let sum = 0;
-      for (const slot of Object.values(entry.modelBlacklist)) {
-        if (slot.blacklistedUntil > now) sum += slot.blacklistedUntil - now;
-      }
-      return sum;
-    };
     const sorted = [...active].sort((a, b) => {
-      const aBlocked = scoreBlacklists(a);
-      const bBlocked = scoreBlacklists(b);
-      if (aBlocked !== bBlocked) return aBlocked - bBlocked;
+      if (a.rateLimitCount !== b.rateLimitCount) {
+        return a.rateLimitCount - b.rateLimitCount;
+      }
       return (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0);
     });
     const best = sorted[0];
