@@ -104,7 +104,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
 ) => {
   const client = input.client;
   const config: KeyStoreConfig = {
-    storePath: options?.storePath as string | undefined,
+    storePath:
+      typeof options?.storePath === "string" ? options.storePath : undefined,
     rotationStrategy: isValidStrategy(options?.rotationStrategy)
       ? options!.rotationStrategy
       : "round-robin",
