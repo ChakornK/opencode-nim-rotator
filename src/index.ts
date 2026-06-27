@@ -694,7 +694,7 @@ const NvidiaNimKeyRotator: Plugin = async (
 };
 
 const pluginModule: PluginModule = {
-  id: "opencode-nim-rotator",
+  id: "@hallaxius/opencode-nim-rotator",
   server: NvidiaNimKeyRotator,
 };
 

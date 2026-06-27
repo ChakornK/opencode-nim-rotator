@@ -1,6 +1,6 @@
 {
-  "name": "opencode-nim-rotator",
-  "version": "0.2.0",
+  "name": "@hallaxius/opencode-nim-rotator",
+  "version": "0.1.0",
   "description": "An OpenCode plugin for managing and rotating multiple NVIDIA NIM API keys",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,15 +16,18 @@
     }
   },
   "bin": {
-    "opencode-nim-rotator": "./bin/opencode-nim-rotator.ts"
+    "@hallaxius/opencode-nim-rotator": "./bin/opencode-nim-rotator.ts"
   },
   "scripts": {
     "build": "tsc",
     "tui": "bun run bin/opencode-nim-rotator.ts",
-    "prepare": "npm run build",
+    "prepare": "bun run build",
     "postinstall": "node scripts/postinstall.js",
     "uninstall": "node scripts/uninstall.js",
-    "format": "prettier -w ."
+    "format": "prettier -w .",
+    	"patch": "npm version patch && bun publish",
+		"minor": "npm version minor && bun publish",
+		"major": "npm version major && bun publish"
   },
   "keywords": [
     "opencode",

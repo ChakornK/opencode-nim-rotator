@@ -1,4 +1,4 @@
-# opencode-nim-rotator
+# @hallaxius/opencode-nim-rotator
 
 An [OpenCode](https://opencode.ai) plugin for managing and rotating multiple [NVIDIA NIM](https://build.nvidia.com) API keys, with automatic model fallback, per-model blacklisting with exponential escalation, benchmarking, and both a CLI TUI manager and an integrated OpenCode TUI plugin.
 
@@ -24,13 +24,7 @@ The plugin hooks into OpenCode's request pipeline:
 ## Install
 
 ```bash
-npm install -g opencode-nim-rotator
-```
-
-Or with bun:
-
-```bash
-bun install -g opencode-nim-rotator
+bun install -g @hallaxius/opencode-nim-rotator
 ```
 
 The postinstall script automatically adds the plugin to your `~/.config/opencode/opencode.json`.
@@ -48,9 +42,7 @@ opencode-nim-rotator
 Or:
 
 ```bash
-npx opencode-nim-rotator
-# or
-bunx opencode-nim-rotator
+bunx @hallaxius/opencode-nim-rotator
 ```
 
 Or manually — add at least one key via OpenCode's auth system:
@@ -139,7 +131,7 @@ Blacklists can be cleared from:
 {
   "plugin": [
     [
-      "opencode-nim-rotator",
+      "@hallaxius/opencode-nim-rotator",
       {
         "rotationStrategy": "round-robin",
         "storePath": "/custom/path/to/keys.json"
@@ -160,7 +152,7 @@ Blacklists can be cleared from:
 
 ## Key Store Format
 
-Keys, fallback chain, blacklists, and theme are stored in `~/.config/opencode/nim-rotator-keys.json` with file mode `0600`:
+Keys, fallback chain, and blacklists are stored in `~/.config/opencode/nim-rotator-keys.json` with file mode `0600`:
 
 ```json
 {
@@ -243,18 +235,12 @@ To override independently, select a theme from the CLI TUI's Settings tab — th
 
 ```bash
 # Install dependencies
-npm install
-# or
 bun install
 
 # Run CLI TUI locally
-npm run tui
-# or
 bun run tui
 
 # Build TypeScript
-npm run build
-# or
 bun run build
 ```
 
@@ -263,18 +249,12 @@ bun run build
 To remove the plugin and clean up all associated data:
 
 ```bash
-npm uninstall -g opencode-nim-rotator
-```
-
-Or with bun:
-
-```bash
-bun remove -g opencode-nim-rotator
+bun remove -g @hallaxius/opencode-nim-rotator
 ```
 
 The uninstaller will automatically:
 
-1. Remove `opencode-nim-rotator` from your `~/.config/opencode/opencode.json` plugin list
+1. Remove `@hallaxius/opencode-nim-rotator` from your `~/.config/opencode/opencode.json` plugin list
 2. Prompt to delete your key store file at `~/.config/opencode/nim-rotator-keys.json`
 3. Remove the theme preference file at `~/.config/opencode/nim-rotator-theme.json`
 

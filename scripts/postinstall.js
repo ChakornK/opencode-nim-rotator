@@ -30,17 +30,17 @@ async function install() {
 
       config.plugin = config.plugin || [];
       const hasPlugin = config.plugin.some(function (p) {
-        if (typeof p === "string") return p === "opencode-nim-rotator";
-        if (Array.isArray(p)) return p[0] === "opencode-nim-rotator";
+        if (typeof p === "string") return p === "@hallaxius/opencode-nim-rotator";
+        if (Array.isArray(p)) return p[0] === "@hallaxius/opencode-nim-rotator";
         return false;
       });
 
       if (!hasPlugin) {
-        config.plugin.push("opencode-nim-rotator");
+        config.plugin.push("@hallaxius/opencode-nim-rotator");
         await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", {
           mode: 0o600,
         });
-        console.log("Added opencode-nim-rotator to opencode.json plugin list");
+        console.log("Added @hallaxius/opencode-nim-rotator to opencode.json plugin list");
       } else {
         console.log("Plugin already in opencode.json - skipping");
       }
@@ -48,7 +48,7 @@ async function install() {
       console.warn("Could not update opencode.json:", err);
     }
   } else {
-    const config = { plugin: ["opencode-nim-rotator"] };
+    const config = { plugin: ["@hallaxius/opencode-nim-rotator"] };
     await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", {
       mode: 0o600,
     });
