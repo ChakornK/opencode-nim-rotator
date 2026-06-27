@@ -669,18 +669,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
         }
       }
 
-      if (event.type === "session.idle") {
-        const sessionID = (event.properties as Record<string, unknown>)
-          ?.sessionID as string;
-        if (!sessionID) return;
-        const state = sessions.get(sessionID);
-        if (!state) return;
-        if (state.inRetry) return;
-        state.pendingRetryIndex = undefined;
-        state.lastFailedModelId = undefined;
-        cleanupSession(sessionID);
-      }
-
       if (event.type === "session.deleted") {
         const sessionID = (
           (event.properties as Record<string, unknown>)?.info as Record<
