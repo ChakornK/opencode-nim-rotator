@@ -505,8 +505,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (now - state.lastErrorHandledAt < ERROR_DEDUP_WINDOW_MS) return;
     state.lastErrorHandledAt = now;
 
-    const errorKeyId = store.lastUsedKeyId;
     reloadFromDisk();
+    const errorKeyId = store.lastUsedKeyId;
     if (errorKeyId) {
       recordRateLimit(store, errorKeyId);
       const modelForBlacklist =
