@@ -629,7 +629,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
       state.lastUserMessageID = output.message.id;
     },
     "shell.env": async (_input, output) => {
-      if (output.env.NVIDIA_API_KEY !== undefined) {
+      const existingKey = output.env.NVIDIA_API_KEY;
+      if (existingKey != null && existingKey.length > 0) {
         reloadFromDisk();
         const next = getNextKey(store, config);
         if (next) {
