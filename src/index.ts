@@ -565,7 +565,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
     },
     "chat.headers": async (_input, _output) => {
       reloadFromDisk();
-      const modelIdForRotation = _input.model?.id;
+      const sessionState = _input.sessionID
+        ? sessions.get(_input.sessionID)
+        : undefined;
+      const modelIdForRotation =
+        sessionState?.activeChainModelId ?? _input.model?.id;
       const next = getNextKey(store, config, modelIdForRotation);
       if (next) {
         _output.headers["Authorization"] = `Bearer ${next.key.key}`;
