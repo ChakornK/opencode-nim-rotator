@@ -378,8 +378,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const sessionID = props?.sessionID as string | undefined;
 
     if (is429Error(error)) {
-      const errorKeyId = store.lastUsedKeyId;
       reloadFromDisk();
+      const errorKeyId = store.lastUsedKeyId;
       if (errorKeyId) {
         recordRateLimit(store, errorKeyId);
         const stateForBlacklist = sessionID
