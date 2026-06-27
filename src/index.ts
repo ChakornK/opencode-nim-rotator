@@ -482,8 +482,16 @@ export const NvidiaNimKeyRotator: Plugin = async (
     if (!sessionID) return;
 
     const error = props?.error as Record<string, unknown> | undefined;
+    const errorData =
+      error && typeof error === "object" && "data" in error
+        ? (error.data as Record<string, unknown>)
+        : undefined;
     const errorMessage =
-      typeof error?.message === "string" ? error.message : undefined;
+      typeof errorData?.message === "string"
+        ? errorData.message
+        : typeof error?.message === "string"
+          ? error.message
+          : undefined;
 
     if (!isStatusMessageRateLimited(errorMessage) && !is429Error(error)) {
       return;
