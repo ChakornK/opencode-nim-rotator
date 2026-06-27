@@ -16,11 +16,14 @@
     }
   },
   "bin": {
-    "@hallaxius/opencode-nim-rotator": "./bin/opencode-nim-rotator.ts"
+    "opencode-nim-rotator": "./dist/bin.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc",
-    "tui": "bun run bin/opencode-nim-rotator.ts",
+    "tui": "bun run src/bin.ts",
     "prepare": "bun run build",
     "postinstall": "node scripts/postinstall.js",
     "uninstall": "node scripts/uninstall.js",
@@ -49,7 +52,6 @@
   "license": "MIT",
   "files": [
     "dist",
-    "bin",
     "scripts"
   ],
   "dependencies": {
