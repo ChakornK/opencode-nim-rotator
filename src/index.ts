@@ -94,7 +94,7 @@ function findChainIndex(
   chain: FallbackModel[],
   model: { providerID: string; modelID: string } | undefined,
 ): number {
-  if (!model) return -1;
+  if (!model || model.providerID !== PROVIDER_ID) return -1;
   return chain.findIndex((entry) => entry.id === model.modelID);
 }
 
@@ -602,7 +602,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
       const chainIndex = findChainIndex(chain, requestedModel);
       if (chainIndex < 0 && state.pendingRetryIndex === undefined) {
-        cleanupSession(sessionID);
         return;
       }
 
