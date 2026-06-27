@@ -430,11 +430,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
     if (is429Error(error)) {
       state.rateLimitCount++;
-      if (state.rateLimitCount < store.maxRateLimitFailures) return;
     } else {
-      state.rateLimitCount = 0;
-      return;
+      state.rateLimitCount++;
     }
+    if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
     const reason = describeError(error, state, store.maxRateLimitFailures);
     const triggered = await triggerRetry(sessionID, state, reason);
