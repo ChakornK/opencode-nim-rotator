@@ -1,4 +1,4 @@
-import type { Plugin, PluginInput, Hooks } from "@opencode-ai/plugin";
+import type { Plugin, PluginModule, PluginInput, Hooks } from "@opencode-ai/plugin";
 import {
   loadStore,
   saveStore,
@@ -99,7 +99,7 @@ function findChainIndex(
   return chain.findIndex((entry) => entry.id === model.modelID);
 }
 
-export const NvidiaNimKeyRotator: Plugin = async (
+const NvidiaNimKeyRotator: Plugin = async (
   input: PluginInput,
   options?: Record<string, unknown>,
 ) => {
@@ -693,4 +693,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
   return hooks;
 };
 
-export default NvidiaNimKeyRotator;
+const pluginModule: PluginModule = {
+  id: "opencode-nim-rotator",
+  server: NvidiaNimKeyRotator,
+};
+
+export default pluginModule;
+export { NvidiaNimKeyRotator };
