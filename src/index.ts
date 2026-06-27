@@ -7,7 +7,6 @@ import {
   getActiveKeys,
   getDefaultStore,
   recordRateLimit,
-  resetRateLimit,
   recordModelRateLimit,
 } from "./storage.js";
 import type { KeyStore, KeyStoreConfig, FallbackModel } from "./types.js";
@@ -558,14 +557,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
     },
     "chat.headers": async (_input, _output) => {
       reloadFromDisk();
-      const prevKeyId = store.lastUsedKeyId;
       const modelIdForRotation = _input.model?.id;
       const next = getNextKey(store, config, modelIdForRotation);
       if (next) {
         _output.headers["Authorization"] = `Bearer ${next.key.key}`;
-        if (prevKeyId && prevKeyId !== next.key.id) {
-          resetRateLimit(store, prevKeyId);
-        }
         safeSaveStore();
       }
       if (modelIdForRotation && _input.sessionID) {
