@@ -293,11 +293,6 @@ function doRenderApp(): void {
       fg: theme.textMuted,
     }),
     Text({
-      id: "rl-threshold",
-      content: `RL: ${state.store.maxRateLimitFailures}`,
-      fg: theme.textMuted,
-    }),
-    Text({
       id: "status-text",
       content: state.statusMessage,
       fg: state.statusColor,
