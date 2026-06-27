@@ -668,10 +668,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
         if (statusType === "idle" && sessionID) {
           const state = sessions.get(sessionID);
           if (!state) return;
+          if (state.inRetry) return;
           state.rateLimitCount = 0;
           state.pendingRetryIndex = undefined;
           state.lastFailedModelId = undefined;
-          if (state.inRetry) return;
           cleanupSession(sessionID);
           return;
         }
