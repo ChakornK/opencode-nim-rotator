@@ -17,7 +17,6 @@ import {
 	resetRateLimit,
 	saveStore,
 } from "./storage.js";
-import { NimRotatorTuiPlugin } from "./tui-plugin.js";
 import type { FallbackModel, KeyStore, KeyStoreConfig } from "./types.js";
 
 const PROVIDER_ID = "nvidia";
@@ -698,5 +697,4 @@ const NvidiaNimKeyRotator: Plugin = async (
 };
 
 export const server = NvidiaNimKeyRotator;
-export const tui = NimRotatorTuiPlugin;
 export { NvidiaNimKeyRotator };

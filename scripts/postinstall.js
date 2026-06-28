@@ -8,6 +8,7 @@ import { join } from "node:path";
 const CONFIG_DIR = join(homedir(), ".config", "opencode");
 const CONFIG_PATH = join(CONFIG_DIR, "opencode.json");
 const MAIN_SPEC = "@hallaxius/opencode-nim-rotator";
+const TUI_SPEC = "@hallaxius/opencode-nim-rotator/tui";
 
 async function install() {
 	console.log(
@@ -32,15 +33,18 @@ async function install() {
 
 			config.plugin = config.plugin || [];
 
-			if (!hasSpec(config.plugin, MAIN_SPEC)) {
-				config.plugin.push(MAIN_SPEC);
-				await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, {
-					mode: 0o600,
-				});
-				console.log(`Added "${MAIN_SPEC}" to opencode.json plugin list`);
-			} else {
-				console.log(`"${MAIN_SPEC}" already in opencode.json - skipping`);
+			for (const spec of [MAIN_SPEC, TUI_SPEC]) {
+				if (!hasSpec(config.plugin, spec)) {
+					config.plugin.push(spec);
+					console.log(`Added "${spec}" to opencode.json plugin list`);
+				} else {
+					console.log(`"${spec}" already in opencode.json - skipping`);
+				}
 			}
+
+			await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, {
+				mode: 0o600,
+			});
 		} catch (err) {
 			console.warn("Could not update opencode.json:", err);
 		}
@@ -53,7 +57,10 @@ async function install() {
 			"  To use this plugin, add the following to your opencode.json:",
 		);
 		console.log("");
-		console.log('    "plugin": ["@hallaxius/opencode-nim-rotator"]');
+		console.log('    "plugin": [');
+		console.log(`      "${MAIN_SPEC}",`);
+		console.log(`      "${TUI_SPEC}"`);
+		console.log("    ]");
 		console.log("");
 		console.log("  If you use a project-level .opencode/opencode.json,");
 		console.log("  add it there instead of the global config.");
