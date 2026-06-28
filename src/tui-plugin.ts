@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import type { TuiPlugin, TuiPluginModule, TuiPluginApi } from "@opencode-ai/plugin/tui";
+import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui";
 import type { KeyStore, ApiKeyEntry, ModelBlacklistEntry } from "./types.js";
 import {
   loadStore,
@@ -513,10 +513,5 @@ const NimRotatorTuiPlugin: TuiPlugin = async (api) => {
   });
 };
 
-const tuiPluginModule: TuiPluginModule = {
-  id: "nim-rotator-tui",
-  tui: NimRotatorTuiPlugin,
-};
-
-export default tuiPluginModule;
+export default NimRotatorTuiPlugin;
 export { NimRotatorTuiPlugin };

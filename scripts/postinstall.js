@@ -29,30 +29,45 @@ async function install() {
       const config = JSON.parse(raw);
 
       config.plugin = config.plugin || [];
-      const hasPlugin = config.plugin.some(function (p) {
-        if (typeof p === "string") return p === "@hallaxius/opencode-nim-rotator";
-        if (Array.isArray(p)) return p[0] === "@hallaxius/opencode-nim-rotator";
-        return false;
-      });
+      const PLUGIN_SPECS = [
+        "@hallaxius/opencode-nim-rotator",
+        "@hallaxius/opencode-nim-rotator/tui",
+      ];
 
-      if (!hasPlugin) {
-        config.plugin.push("@hallaxius/opencode-nim-rotator");
+      let added = 0;
+      for (const spec of PLUGIN_SPECS) {
+        const hasPlugin = config.plugin.some(function (p) {
+          if (typeof p === "string") return p === spec;
+          if (Array.isArray(p)) return p[0] === spec;
+          return false;
+        });
+
+        if (!hasPlugin) {
+          config.plugin.push(spec);
+          console.log("Added " + spec + " to opencode.json plugin list");
+          added++;
+        }
+      }
+
+      if (added > 0) {
         await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", {
           mode: 0o600,
         });
-        console.log("Added @hallaxius/opencode-nim-rotator to opencode.json plugin list");
-      } else {
-        console.log("Plugin already in opencode.json - skipping");
       }
     } catch (err) {
       console.warn("Could not update opencode.json:", err);
     }
   } else {
-    const config = { plugin: ["@hallaxius/opencode-nim-rotator"] };
+    const config = {
+      plugin: [
+        "@hallaxius/opencode-nim-rotator",
+        "@hallaxius/opencode-nim-rotator/tui",
+      ],
+    };
     await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", {
       mode: 0o600,
     });
-    console.log("Created opencode.json with plugin entry");
+    console.log("Created opencode.json with plugin entries");
   }
 
   console.log("\nNext steps:");

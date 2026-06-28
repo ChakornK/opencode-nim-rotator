@@ -1,4 +1,4 @@
-import type { Plugin, PluginModule, PluginInput, Hooks } from "@opencode-ai/plugin";
+import type { Plugin, PluginInput, Hooks } from "@opencode-ai/plugin";
 import {
   loadStore,
   saveStore,
@@ -693,10 +693,5 @@ const NvidiaNimKeyRotator: Plugin = async (
   return hooks;
 };
 
-const pluginModule: PluginModule = {
-  id: "@hallaxius/opencode-nim-rotator",
-  server: NvidiaNimKeyRotator,
-};
-
-export default pluginModule;
+export default NvidiaNimKeyRotator;
 export { NvidiaNimKeyRotator };
