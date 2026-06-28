@@ -1,77 +1,82 @@
 {
-  "name": "@hallaxius/opencode-nim-rotator",
-  "version": "0.2.2",
-  "description": "An OpenCode plugin for managing and rotating multiple NVIDIA NIM API keys",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./tui": {
-      "import": "./dist/tui-plugin.js",
-      "types": "./dist/tui-plugin.d.ts"
-    }
-  },
-  "bin": {
-    "opencode-nim-rotator": "./dist/bin.js"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "scripts": {
-    "build": "tsc",
-    "tui": "bun run src/bin.ts",
-    "prepare": "bun run build",
-    "uninstall": "node scripts/uninstall.js",
-    "format": "prettier -w .",
-    "patch": "npm version patch && bun publish",
-    "minor": "npm version minor && bun publish",
-    "major": "npm version major && bun publish"
-  },
-  "keywords": [
-    "opencode",
-    "plugin",
-    "nvidia",
-    "nim",
-    "api-key",
-    "rotation"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/hallaxius/opencode-nim-rotator.git"
-  },
-  "bugs": {
-    "url": "https://github.com/hallaxius/opencode-nim-rotator/issues"
-  },
-  "homepage": "https://github.com/hallaxius/opencode-nim-rotator#readme",
-  "author": "ChakornK",
-  "license": "MIT",
-  "files": [
-    "dist",
-    "scripts"
-  ],
-  "dependencies": {
-    "@opencode-ai/plugin": "^1.17.11",
-    "@opentui/core": "^0.4.2"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.14",
-    "prettier": "^3.8.4",
-    "typescript": "6.0.3"
-  },
-  "peerDependencies": {
-    "bun": ">=1.0.0"
-  },
-  "peerDependenciesMeta": {
-    "bun": {
-      "optional": true
-    }
-  },
-  "engines": {
-    "opencode": "^1.0.0",
-    "node": ">=18.0.0"
-  }
+	"name": "@hallaxius/opencode-nim-rotator",
+	"version": "0.2.2",
+	"description": "An OpenCode plugin for managing and rotating multiple NVIDIA NIM API keys",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"type": "module",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		},
+		"./server": {
+			"import": "./dist/server.js",
+			"types": "./dist/server.d.ts"
+		},
+		"./tui": {
+			"import": "./dist/tui-plugin.js",
+			"types": "./dist/tui-plugin.d.ts"
+		}
+	},
+	"bin": {
+		"opencode-nim-rotator": "./dist/bin.js"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "tsc",
+		"tui": "bun run src/bin.ts",
+		"prepare": "bun run build",
+		"uninstall": "node scripts/uninstall.js",
+		"format": "prettier -w .",
+		"patch": "npm version patch && bun publish",
+		"minor": "npm version minor && bun publish",
+		"major": "npm version major && bun publish"
+	},
+	"keywords": [
+		"opencode",
+		"plugin",
+		"nvidia",
+		"nim",
+		"api-key",
+		"rotation"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hallaxius/opencode-nim-rotator.git"
+	},
+	"bugs": {
+		"url": "https://github.com/hallaxius/opencode-nim-rotator/issues"
+	},
+	"homepage": "https://github.com/hallaxius/opencode-nim-rotator#readme",
+	"author": "ChakornK",
+	"license": "MIT",
+	"files": [
+		"dist",
+		"scripts"
+	],
+	"dependencies": {
+		"@opencode-ai/plugin": "^1.17.11",
+		"@opentui/core": "^0.4.2"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.1",
+		"@types/bun": "^1.3.14",
+		"prettier": "^3.8.4",
+		"typescript": "6.0.3"
+	},
+	"peerDependencies": {
+		"bun": ">=1.0.0"
+	},
+	"peerDependenciesMeta": {
+		"bun": {
+			"optional": true
+		}
+	},
+	"engines": {
+		"opencode": "^1.0.0",
+		"node": ">=18.0.0"
+	}
 }

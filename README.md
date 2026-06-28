@@ -131,7 +131,7 @@ Blacklists can be cleared from:
 {
   "plugin": [
     [
-      "@hallaxius/opencode-nim-rotator",
+      "@hallaxius/opencode-nim-rotator/server",
       {
         "rotationStrategy": "round-robin",
         "storePath": "/custom/path/to/keys.json"
