@@ -29,14 +29,10 @@ async function uninstall() {
 
       if (Array.isArray(config.plugin)) {
         const beforeLength = config.plugin.length;
-        const PLUGIN_SPECS = [
-          "@hallaxius/opencode-nim-rotator",
-          "@hallaxius/opencode-nim-rotator/tui",
-        ];
-
         config.plugin = config.plugin.filter(function (p) {
-          const spec = typeof p === "string" ? p : Array.isArray(p) ? p[0] : "";
-          return !PLUGIN_SPECS.includes(spec);
+          if (typeof p === "string") return p !== "@hallaxius/opencode-nim-rotator";
+          if (Array.isArray(p)) return p[0] !== "@hallaxius/opencode-nim-rotator";
+          return true;
         });
 
         if (config.plugin.length !== beforeLength) {
@@ -44,7 +40,7 @@ async function uninstall() {
             mode: 0o600,
           });
           console.log(
-            "Removed @hallaxius/opencode-nim-rotator entries from opencode.json plugin list",
+            "Removed @hallaxius/opencode-nim-rotator from opencode.json plugin list",
           );
           configModified = true;
         } else {

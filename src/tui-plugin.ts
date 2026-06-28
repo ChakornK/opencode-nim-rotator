@@ -1,6 +1,3 @@
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui";
 import type { KeyStore, ApiKeyEntry, ModelBlacklistEntry } from "./types.js";
 import {
@@ -15,7 +12,6 @@ import {
 import {
   loadStoreReadonly,
   getStorePath,
-  formatKeyStatus,
   getBlacklistedModels,
 } from "./storage-readonly.js";
 

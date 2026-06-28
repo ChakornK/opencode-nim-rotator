@@ -10,10 +10,6 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./server": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
     "./tui": {
       "import": "./dist/tui-plugin.js",
       "types": "./dist/tui-plugin.d.ts"
@@ -45,12 +41,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/airshakur88/opencode-api-key-rotator.git"
+    "url": "git+https://github.com/hallaxius/opencode-nim-rotator.git"
   },
   "bugs": {
-    "url": "https://github.com/airshakur88/opencode-api-key-rotator/issues"
+    "url": "https://github.com/hallaxius/opencode-nim-rotator/issues"
   },
-  "homepage": "https://github.com/airshakur88/opencode-api-key-rotator#readme",
+      "homepage": "https://github.com/hallaxius/opencode-nim-rotator#readme",
   "author": "ChakornK",
   "license": "MIT",
   "files": [

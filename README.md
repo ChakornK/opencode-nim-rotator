@@ -136,8 +136,7 @@ Blacklists can be cleared from:
         "rotationStrategy": "round-robin",
         "storePath": "/custom/path/to/keys.json"
       }
-    ],
-    "@hallaxius/opencode-nim-rotator/tui"
+    ]
   ]
 }
 ```
@@ -255,7 +254,7 @@ bun remove -g @hallaxius/opencode-nim-rotator
 
 The uninstaller will automatically:
 
-1.  Removes both `@hallaxius/opencode-nim-rotator` and `@hallaxius/opencode-nim-rotator/tui` from your `~/.config/opencode/opencode.json` plugin list
+1.  Remove `@hallaxius/opencode-nim-rotator` from your `~/.config/opencode/opencode.json` plugin list
 2. Prompt to delete your key store file at `~/.config/opencode/nim-rotator-keys.json`
 3. Remove the theme preference file at `~/.config/opencode/nim-rotator-theme.json`
 

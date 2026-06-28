@@ -1,4 +1,6 @@
 import type { Plugin, PluginInput, Hooks } from "@opencode-ai/plugin";
+import type { TuiPlugin } from "@opencode-ai/plugin/tui";
+import { NimRotatorTuiPlugin } from "./tui-plugin.js";
 import {
   loadStore,
   saveStore,
@@ -12,7 +14,6 @@ import {
 } from "./storage.js";
 import type { KeyStore, KeyStoreConfig, FallbackModel } from "./types.js";
 import {
-  extractStatus,
   describeError,
   is429Error,
   isStatusMessageRateLimited,
@@ -121,7 +122,7 @@ const NvidiaNimKeyRotator: Plugin = async (
     try {
       fresh = loadStore(config);
     } catch (err) {
-      console.debug("[nim-rotator] Failed to reload store from disk:", err);
+      console.error("[nim-rotator] Failed to reload store from disk:", err);
       return;
     }
     if (fresh === null) return;
@@ -141,7 +142,7 @@ const NvidiaNimKeyRotator: Plugin = async (
           ? fresh.maxRateLimitFailures
           : getDefaultStore().maxRateLimitFailures;
     } catch (err) {
-      console.debug("[nim-rotator] Failed to apply reloaded store:", err);
+      console.error("[nim-rotator] Failed to apply reloaded store:", err);
     }
   };
 
@@ -365,7 +366,7 @@ const NvidiaNimKeyRotator: Plugin = async (
 
       return true;
     } catch (err) {
-      console.debug(`[nim-rotator] triggerRetry failed for ${sessionID}:`, err);
+      console.error(`[nim-rotator] triggerRetry failed for ${sessionID}:`, err);
       state.pendingRetryIndex = undefined;
       return false;
     } finally {
@@ -543,7 +544,7 @@ const NvidiaNimKeyRotator: Plugin = async (
               });
               if (!res.ok) return { type: "failed" };
             } catch (err) {
-              console.debug("[nim-rotator] authorize fetch failed:", err);
+              console.error("[nim-rotator] authorize fetch failed:", err);
               return { type: "failed" };
             }
 
@@ -693,5 +694,8 @@ const NvidiaNimKeyRotator: Plugin = async (
   return hooks;
 };
 
-export default NvidiaNimKeyRotator;
+export default {
+  server: NvidiaNimKeyRotator,
+  tui: NimRotatorTuiPlugin,
+};
 export { NvidiaNimKeyRotator };
