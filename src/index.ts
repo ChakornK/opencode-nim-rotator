@@ -71,6 +71,9 @@ const RETRY_BACKOFF_FACTOR = 2;
 const RETRY_MAX_DELAY_NO_HEADERS = 30_000;
 const RETRY_MAX_DELAY = 2_147_483_647;
 
+// Model cooldown after rate limit: 1 hour
+const MODEL_COOLDOWN_MS = 60 * 60 * 1000;
+
 function capDelay(ms: number): number {
   return Math.min(ms, RETRY_MAX_DELAY);
 }
@@ -174,6 +177,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
   if (!Array.isArray(store.fallbackChain)) store.fallbackChain = [];
 
   const sessions = new Map<string, SessionState>();
+  const modelCooldowns = new Map<string, number>();
   const proxySessions = new Map<
     string,
     {
@@ -554,6 +558,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
+    // Set cooldown for the current model before falling back
+    const cooldownModelId = state.currentModelId ?? state.activeChainModelId;
+    if (cooldownModelId) {
+      modelCooldowns.set(cooldownModelId, Date.now() + MODEL_COOLDOWN_MS);
+    }
+
     const reason = describeError(error, state, store.maxRateLimitFailures);
     const triggered = await triggerRetry(sessionID, state, reason, error);
     if (!triggered) {
@@ -589,6 +599,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+    // Set cooldown for the current model before falling back
+    const cooldownModelId = state.currentModelId ?? state.activeChainModelId;
+    if (cooldownModelId) {
+      modelCooldowns.set(cooldownModelId, Date.now() + MODEL_COOLDOWN_MS);
+    }
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
     const triggered2 = await triggerRetry(sessionID, state, reason);
@@ -643,6 +659,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+    // Set cooldown for the current model before falling back
+    const cooldownModelId = state.currentModelId ?? state.activeChainModelId;
+    if (cooldownModelId) {
+      modelCooldowns.set(cooldownModelId, Date.now() + MODEL_COOLDOWN_MS);
+    }
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
     const triggered3 = await triggerRetry(sessionID, state, reason, error);
@@ -737,7 +759,21 @@ export const NvidiaNimKeyRotator: Plugin = async (
       if (state.pendingRetryIndex !== undefined) {
         desiredIndex = state.pendingRetryIndex;
       } else {
-        desiredIndex = chainIndex >= 0 ? chainIndex : 0;
+        // Check if first model's cooldown has expired and reset to it
+        if (chain.length > 0) {
+          const firstModel = chain[0];
+          const cooldownExpiry = modelCooldowns.get(firstModel.id);
+          if (cooldownExpiry !== undefined && Date.now() >= cooldownExpiry) {
+            state.attemptIndex = 0;
+            state.activeChainModelId = firstModel.id;
+            modelCooldowns.delete(firstModel.id);
+            desiredIndex = 0;
+          } else {
+            desiredIndex = chainIndex >= 0 ? chainIndex : 0;
+          }
+        } else {
+          desiredIndex = chainIndex >= 0 ? chainIndex : 0;
+        }
       }
 
       // Proactively skip models that are blacklisted for the current key

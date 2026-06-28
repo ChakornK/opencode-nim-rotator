@@ -209,4 +209,134 @@ describe("NvidiaNimKeyRotator", () => {
     // Session state should be cleaned up
     expect(true).toBe(true);
   });
+
+  it("should reset to first model after cooldown expires", async () => {
+    const storePath = "/tmp/test-nim-rotator-cooldown-expire.json";
+    let originalDateNow: typeof Date.now = Date.now;
+    try {
+      writeFileSync(
+        storePath,
+        JSON.stringify({
+          keys: [],
+          currentIndex: 0,
+          rotationStrategy: "round-robin",
+          updatedAt: Date.now(),
+          fallbackChain: [
+            { id: "model-a", name: "Model A" },
+            { id: "model-b", name: "Model B" },
+          ],
+          maxRateLimitFailures: 3,
+        }),
+      );
+
+      const client = createMockClient();
+      const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {
+        storePath,
+        proxyPort: 0,
+      });
+
+      // First message with model-a
+      const output1 = {
+        message: {
+          id: "msg-1",
+          model: { providerID: "nvidia", modelID: "model-a" },
+        },
+      };
+      await plugin["chat.message"]!(
+        {
+          sessionID: "test-123",
+          model: { providerID: "nvidia", modelID: "model-a" },
+        } as any,
+        output1 as any,
+      );
+      expect(output1.message.model).toEqual({
+        providerID: "nvidia",
+        modelID: "model-a",
+      });
+
+      // Simulate rate limit errors to trigger fallback from model-a to model-b
+      const event = {
+        type: "session.error" as const,
+        properties: {
+          sessionID: "test-123",
+          error: {
+            name: "APIError",
+            data: {
+              statusCode: 429,
+              responseHeaders: { "retry-after-ms": "0" },
+            },
+          },
+        },
+      };
+      for (let i = 0; i < 3; i++) {
+        await plugin.event!({ event } as any);
+        if (i < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        }
+      }
+
+      // Simulate session idle to clean up state
+      await plugin.event!({
+        event: {
+          type: "session.status",
+          properties: {
+            sessionID: "test-123",
+            status: { type: "idle" },
+          },
+        },
+      } as any);
+
+      // After fallback, model-a has a 1-hour cooldown
+      // Next message with model-b should use model-b (fallback)
+      const output2 = {
+        message: {
+          id: "msg-2",
+          model: { providerID: "nvidia", modelID: "model-b" },
+        },
+      };
+      await plugin["chat.message"]!(
+        {
+          sessionID: "test-123",
+          model: { providerID: "nvidia", modelID: "model-b" },
+        } as any,
+        output2 as any,
+      );
+      expect(output2.message.model).toEqual({
+        providerID: "nvidia",
+        modelID: "model-b",
+      });
+
+      // Mock Date.now to expire the cooldown
+      originalDateNow = Date.now;
+      let mockTime = Date.now();
+      Date.now = () => mockTime;
+
+      // Advance time by 1 hour + 1 ms
+      mockTime += 60 * 60 * 1000 + 1;
+
+      // After cooldown expires, next message with model-b should use model-a (first model)
+      const output3 = {
+        message: {
+          id: "msg-3",
+          model: { providerID: "nvidia", modelID: "model-b" },
+        },
+      };
+      await plugin["chat.message"]!(
+        {
+          sessionID: "test-123",
+          model: { providerID: "nvidia", modelID: "model-b" },
+        } as any,
+        output3 as any,
+      );
+      expect(output3.message.model).toEqual({
+        providerID: "nvidia",
+        modelID: "model-a",
+      });
+    } finally {
+      Date.now = originalDateNow;
+      try {
+        unlinkSync(storePath);
+      } catch {}
+    }
+  }, 10000);
 });
