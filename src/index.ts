@@ -18,6 +18,7 @@ import {
   shouldRetryForError,
   type SessionState,
 } from "./errors.js";
+import { startProxy } from "./proxy.js";
 
 const PROVIDER_ID = "nvidia";
 const NIM_BASE_URL = "https://integrate.api.nvidia.com";
@@ -115,6 +116,36 @@ export const NvidiaNimKeyRotator: Plugin = async (
   if (!Array.isArray(store.fallbackChain)) store.fallbackChain = [];
 
   const sessions = new Map<string, SessionState>();
+  const proxySessions = new Map<
+    string,
+    {
+      activeChainModelId: string | undefined;
+      currentModelId: string | undefined;
+    }
+  >();
+  const proxyPort =
+    typeof options?.proxyPort === "number" ? options.proxyPort : 8765;
+
+  const proxy = startProxy({
+    port: proxyPort,
+    store,
+    sessions: proxySessions,
+    onRateLimit: (sessionID: string, modelId: string) => {
+      const state = sessions.get(sessionID);
+      if (state) {
+        state.rateLimitCount++;
+      }
+      const errorKeyId = store.lastUsedKeyId;
+      if (errorKeyId) {
+        recordRateLimit(store, errorKeyId);
+        if (modelId) {
+          recordModelRateLimit(store, errorKeyId, modelId);
+        }
+      }
+      safeSaveStore();
+    },
+  });
+  const actualProxyPort = proxy.port;
 
   const reloadFromDisk = () => {
     let fresh: KeyStore | null = null;
@@ -456,6 +487,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
         state.attemptIndex = nextIndex;
         state.activeChainModelId = chain[nextIndex]?.id;
       }
+      proxySessions.set(sessionID, {
+        activeChainModelId: state.activeChainModelId,
+        currentModelId: state.currentModelId,
+      });
       await showToast(
         "info",
         `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
@@ -507,6 +542,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
         state.attemptIndex = nextIndex;
         state.activeChainModelId = chain[nextIndex]?.id;
       }
+      proxySessions.set(sessionID, {
+        activeChainModelId: state.activeChainModelId,
+        currentModelId: state.currentModelId,
+      });
       await showToast(
         "info",
         `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
@@ -576,6 +615,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
         state.attemptIndex = nextIndex;
         state.activeChainModelId = chain[nextIndex]?.id;
       }
+      proxySessions.set(sessionID, {
+        activeChainModelId: state.activeChainModelId,
+        currentModelId: state.currentModelId,
+      });
       await showToast(
         "info",
         `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
@@ -593,6 +636,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
   };
 
   const hooks: Hooks = {
+    config: async (cfg: any) => {
+      if (!cfg.providers) cfg.providers = {};
+      if (!cfg.providers.nvidia) cfg.providers.nvidia = {};
+      if (!cfg.providers.nvidia.options) cfg.providers.nvidia.options = {};
+      cfg.providers.nvidia.options.baseURL = `http://localhost:${actualProxyPort}`;
+    },
     auth: {
       provider: PROVIDER_ID,
       methods: [
@@ -638,6 +687,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
       if (modelIdForRotation && input.sessionID) {
         const state = getState(input.sessionID);
         state.currentModelId = modelIdForRotation;
+      }
+      if (input.sessionID) {
+        output.headers["X-Nim-Rotator-Session-ID"] = input.sessionID;
       }
     },
     "chat.message": async (input, output) => {
