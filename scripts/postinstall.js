@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode");
 const CONFIG_PATH = join(CONFIG_DIR, "opencode.json");
+const MAIN_SPEC = "@hallaxius/opencode-nim-rotator";
 
 async function install() {
 	console.log(
@@ -17,7 +18,12 @@ async function install() {
 		"+=============================================================+\n",
 	);
 
-	await mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
+	const hasSpec = (plugin, spec) =>
+		plugin.some((p) => {
+			if (typeof p === "string") return p === spec;
+			if (Array.isArray(p)) return p[0] === spec;
+			return false;
+		});
 
 	if (existsSync(CONFIG_PATH)) {
 		try {
@@ -25,54 +31,42 @@ async function install() {
 			const config = JSON.parse(raw);
 
 			config.plugin = config.plugin || [];
-			const SERVER_SPEC = "@hallaxius/opencode-nim-rotator/server";
-			const TUI_SPEC = "@hallaxius/opencode-nim-rotator/tui";
 
-			const hasSpec = (spec) =>
-				config.plugin.some((p) => {
-					if (typeof p === "string") return p === spec;
-					if (Array.isArray(p)) return p[0] === spec;
-					return false;
-				});
-
-			const needsServer = !hasSpec(SERVER_SPEC);
-			const needsTui = !hasSpec(TUI_SPEC);
-
-			if (needsServer || needsTui) {
-				if (needsServer) config.plugin.push(SERVER_SPEC);
-				if (needsTui) config.plugin.push(TUI_SPEC);
+			if (!hasSpec(config.plugin, MAIN_SPEC)) {
+				config.plugin.push(MAIN_SPEC);
 				await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, {
 					mode: 0o600,
 				});
-				const added = [];
-				if (needsServer) added.push(SERVER_SPEC);
-				if (needsTui) added.push(TUI_SPEC);
-				console.log(`Added to opencode.json plugin list: ${added.join(", ")}`);
+				console.log(`Added "${MAIN_SPEC}" to opencode.json plugin list`);
 			} else {
-				console.log("Plugins already in opencode.json - skipping");
+				console.log(`"${MAIN_SPEC}" already in opencode.json - skipping`);
 			}
 		} catch (err) {
 			console.warn("Could not update opencode.json:", err);
 		}
 	} else {
-		const config = {
-				plugin: [
-					"@hallaxius/opencode-nim-rotator/server",
-					"@hallaxius/opencode-nim-rotator/tui",
-				],
-			};
-		await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, {
-			mode: 0o600,
-		});
-		console.log("Created opencode.json with plugin entry");
+		console.log(
+			"[INFO] No opencode config found at ~/.config/opencode/opencode.json",
+		);
+		console.log("");
+		console.log(
+			"  To use this plugin, add the following to your opencode.json:",
+		);
+		console.log("");
+		console.log('    "plugin": ["@hallaxius/opencode-nim-rotator"]');
+		console.log("");
+		console.log("  If you use a project-level .opencode/opencode.json,");
+		console.log("  add it there instead of the global config.");
+		console.log("");
+		console.log(
+			"  Then restart opencode for the changes to take effect.\n",
+		);
 	}
 
-	console.log("\nNext steps:");
-	console.log("  1. Run: bun opencode-nim-rotator  (to manage your API keys)");
-	console.log("  2. Add at least one NVIDIA NIM API key via the TUI");
-	console.log(
-		"  3. Restart opencode - the plugin will auto-rotate your keys\n",
-	);
+	console.log("Next steps:");
+	console.log("  1. Add at least one NVIDIA NIM API key via:");
+	console.log("       bun opencode-nim-rotator");
+	console.log("  2. Restart opencode - the plugin will be ready\n");
 }
 
 await install().catch((err) => {

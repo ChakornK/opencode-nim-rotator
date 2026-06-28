@@ -697,7 +697,6 @@ const NvidiaNimKeyRotator: Plugin = async (
 	return hooks;
 };
 
-export default {
-	tui: NimRotatorTuiPlugin,
-};
+export const server = NvidiaNimKeyRotator;
+export const tui = NimRotatorTuiPlugin;
 export { NvidiaNimKeyRotator };

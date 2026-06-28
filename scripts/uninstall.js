@@ -10,6 +10,12 @@ const CONFIG_PATH = join(CONFIG_DIR, "opencode.json");
 const KEYSTORE_PATH = join(CONFIG_DIR, "nim-rotator-keys.json");
 const THEME_PATH = join(CONFIG_DIR, "nim-rotator-theme.json");
 
+const SPECS_TO_REMOVE = [
+	"@hallaxius/opencode-nim-rotator",
+	"@hallaxius/opencode-nim-rotator/server",
+	"@hallaxius/opencode-nim-rotator/tui",
+];
+
 async function uninstall() {
 	console.log(
 		"\n+=============================================================+",
@@ -29,14 +35,9 @@ async function uninstall() {
 
 			if (Array.isArray(config.plugin)) {
 				const beforeLength = config.plugin.length;
-				const SPECS = [
-					"@hallaxius/opencode-nim-rotator",
-					"@hallaxius/opencode-nim-rotator/server",
-					"@hallaxius/opencode-nim-rotator/tui",
-				];
 				config.plugin = config.plugin.filter((p) => {
 					const spec = typeof p === "string" ? p : Array.isArray(p) ? p[0] : "";
-					return !SPECS.includes(spec);
+					return !SPECS_TO_REMOVE.includes(spec);
 				});
 
 				if (config.plugin.length !== beforeLength) {
