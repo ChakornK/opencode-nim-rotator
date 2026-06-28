@@ -265,112 +265,132 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const chain = store.fallbackChain;
     if (chain.length < 2) return false;
 
-    let nextIndex = (state.attemptIndex + 1) % chain.length;
-    if (
-      state.lastFailedModelId &&
-      chain[nextIndex]?.id === state.lastFailedModelId &&
-      chain.length > 2
-    ) {
-      nextIndex = (nextIndex + 1) % chain.length;
+    // Prevent concurrent retries for the same session
+    if (state.retryPromise) {
+      return state.retryPromise;
     }
-    state.inRetry = true;
-    state.pendingRetryIndex = nextIndex;
 
-    try {
-      const source = chain[state.attemptIndex];
-      const target = chain[nextIndex];
-      if (!source || !target) return false;
-
-      await showToast(
-        "warning",
-        `${source.name} → ${target.name}${reason ? `: ${reason}` : ""}`,
-      );
-
-      const messagesResult = await client.session.messages({
-        path: { id: sessionID },
-      });
-      const entries =
-        messagesResult && "data" in messagesResult
-          ? messagesResult.data
-          : messagesResult;
-      if (!Array.isArray(entries)) return false;
-
-      const userMessages = (entries as Array<Record<string, unknown>>).filter(
-        (entry) => (entry?.info as Record<string, unknown>)?.role === "user",
-      );
-      if (userMessages.length === 0) return false;
-
-      const lastUser = userMessages[userMessages.length - 1] as Record<
-        string,
-        unknown
-      >;
-      const lastUserInfo = lastUser.info as Record<string, unknown>;
-      const lastUserParts = lastUser.parts as Array<Record<string, unknown>>;
-
+    const doRetry = async (): Promise<boolean> => {
+      let nextIndex = (state.attemptIndex + 1) % chain.length;
       if (
-        state.lastUserMessageID &&
-        (lastUserInfo?.id as string) !== state.lastUserMessageID
+        state.lastFailedModelId &&
+        chain[nextIndex]?.id === state.lastFailedModelId &&
+        chain.length > 2
       ) {
-        return false;
+        nextIndex = (nextIndex + 1) % chain.length;
       }
+      state.inRetry = true;
+      state.pendingRetryIndex = nextIndex;
 
-      const promptParts: Array<{
-        type: "text";
-        id: string;
-        text: string;
-        synthetic?: boolean;
-        ignored?: boolean;
-      }> = [];
-      if (Array.isArray(lastUserParts)) {
-        for (const part of lastUserParts) {
-          if (part?.type === "text") {
-            promptParts.push({
-              type: "text",
-              id: part.id as string,
-              text: part.text as string,
-              synthetic: part.synthetic as boolean | undefined,
-              ignored: part.ignored as boolean | undefined,
-            });
+      try {
+        const source = chain[state.attemptIndex];
+        const target = chain[nextIndex];
+        if (!source || !target) return false;
+
+        await showToast(
+          "warning",
+          `${source.name} → ${target.name}${reason ? `: ${reason}` : ""}`,
+        );
+
+        const messagesResult = await client.session.messages({
+          path: { id: sessionID },
+        });
+        const entries =
+          messagesResult && "data" in messagesResult
+            ? messagesResult.data
+            : messagesResult;
+        if (!Array.isArray(entries)) return false;
+
+        const userMessages = (entries as Array<Record<string, unknown>>).filter(
+          (entry) => (entry?.info as Record<string, unknown>)?.role === "user",
+        );
+        if (userMessages.length === 0) return false;
+
+        const lastUser = userMessages[userMessages.length - 1] as Record<
+          string,
+          unknown
+        >;
+        const lastUserInfo = lastUser.info as Record<string, unknown>;
+        const lastUserParts = lastUser.parts as Array<Record<string, unknown>>;
+
+        if (
+          state.lastUserMessageID &&
+          (lastUserInfo?.id as string) !== state.lastUserMessageID
+        ) {
+          return false;
+        }
+
+        const promptParts: Array<{
+          type: "text";
+          id: string;
+          text: string;
+          synthetic?: boolean;
+          ignored?: boolean;
+        }> = [];
+        if (Array.isArray(lastUserParts)) {
+          for (const part of lastUserParts) {
+            if (part?.type === "text") {
+              promptParts.push({
+                type: "text",
+                id: part.id as string,
+                text: part.text as string,
+                synthetic: part.synthetic as boolean | undefined,
+                ignored: part.ignored as boolean | undefined,
+              });
+            }
           }
         }
-      }
 
-      state.aborting = true;
-      try {
-        await client.session.abort({ path: { id: sessionID } });
-      } catch (abortErr) {
-        console.debug(`[nim-rotator] abort failed for ${sessionID}:`, abortErr);
-      }
+        state.aborting = true;
+        try {
+          await client.session.abort({ path: { id: sessionID } });
+        } catch (abortErr) {
+          console.debug(
+            `[nim-rotator] abort failed for ${sessionID}:`,
+            abortErr,
+          );
+        }
 
-      const idle = await waitForSessionIdle(sessionID);
-      if (!idle) {
+        const idle = await waitForSessionIdle(sessionID);
+        if (!idle) {
+          console.debug(
+            `[nim-rotator] session ${sessionID} did not go idle after abort`,
+          );
+          state.pendingRetryIndex = undefined;
+          return false;
+        }
+
+        await client.session.prompt({
+          path: { id: sessionID },
+          body: {
+            messageID: lastUserInfo?.id as string,
+            agent: lastUserInfo?.agent as string,
+            model: {
+              providerID: PROVIDER_ID,
+              modelID: target.id,
+            },
+            parts: promptParts,
+          },
+        });
+
+        return true;
+      } catch (err) {
         console.debug(
-          `[nim-rotator] session ${sessionID} did not go idle after abort`,
+          `[nim-rotator] triggerRetry failed for ${sessionID}:`,
+          err,
         );
         state.pendingRetryIndex = undefined;
         return false;
+      } finally {
+        state.inRetry = false;
       }
+    };
 
-      await client.session.prompt({
-        path: { id: sessionID },
-        body: {
-          messageID: lastUserInfo?.id as string,
-          agent: lastUserInfo?.agent as string,
-          model: {
-            providerID: PROVIDER_ID,
-            modelID: target.id,
-          },
-          parts: promptParts,
-        },
-      });
-
-      return true;
-    } catch (err) {
-      console.debug(`[nim-rotator] triggerRetry failed for ${sessionID}:`, err);
-      state.pendingRetryIndex = undefined;
-      return false;
+    state.retryPromise = doRetry();
+    try {
+      return await state.retryPromise;
     } finally {
-      state.inRetry = false;
+      state.retryPromise = undefined;
     }
   };
 
@@ -398,13 +418,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
         }
       }
       safeSaveStore();
-
-      if (sessionID && (await isSubagentSessionCached(client, sessionID))) {
-        await showToast(
-          "info",
-          `Subagent rate limited — switching to next model in chain`,
-        );
-      }
     }
 
     if (!sessionID) return;
@@ -434,6 +447,21 @@ export const NvidiaNimKeyRotator: Plugin = async (
       state.rateLimitCount++;
     }
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+    // For subagents: don't abort — update model index for next turn
+    if (await isSubagentSessionCached(client, sessionID)) {
+      const chain = store.fallbackChain;
+      if (chain.length >= 2) {
+        const nextIndex = (state.attemptIndex + 1) % chain.length;
+        state.attemptIndex = nextIndex;
+        state.activeChainModelId = chain[nextIndex]?.id;
+      }
+      await showToast(
+        "info",
+        `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
+      );
+      return;
+    }
 
     const reason = describeError(error, state, store.maxRateLimitFailures);
     const triggered = await triggerRetry(sessionID, state, reason);
@@ -470,6 +498,21 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+    // For subagents: don't abort — update model index for next turn
+    if (await isSubagentSessionCached(client, sessionID)) {
+      const chain = store.fallbackChain;
+      if (chain.length >= 2) {
+        const nextIndex = (state.attemptIndex + 1) % chain.length;
+        state.attemptIndex = nextIndex;
+        state.activeChainModelId = chain[nextIndex]?.id;
+      }
+      await showToast(
+        "info",
+        `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
+      );
+      return;
+    }
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
     const triggered2 = await triggerRetry(sessionID, state, reason);
@@ -524,6 +567,21 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
+
+    // For subagents: don't abort — update model index for next turn
+    if (await isSubagentSessionCached(client, sessionID)) {
+      const chain = store.fallbackChain;
+      if (chain.length >= 2) {
+        const nextIndex = (state.attemptIndex + 1) % chain.length;
+        state.attemptIndex = nextIndex;
+        state.activeChainModelId = chain[nextIndex]?.id;
+      }
+      await showToast(
+        "info",
+        `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
+      );
+      return;
+    }
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
     const triggered3 = await triggerRetry(sessionID, state, reason);
@@ -611,6 +669,22 @@ export const NvidiaNimKeyRotator: Plugin = async (
       } else {
         desiredIndex = chainIndex >= 0 ? chainIndex : 0;
       }
+
+      // Proactively skip models that are blacklisted for the current key
+      const findNonBlacklistedModel = (startIndex: number): number => {
+        for (let i = 0; i < chain.length; i++) {
+          const idx = (startIndex + i) % chain.length;
+          const model = chain[idx];
+          if (!model) continue;
+          const activeKeysForModel = getActiveKeys(store, model.id);
+          if (activeKeysForModel.length > 0) {
+            return idx;
+          }
+        }
+        return startIndex; // fallback: use original
+      };
+
+      desiredIndex = findNonBlacklistedModel(desiredIndex);
 
       const target = chain[desiredIndex];
       if (!target) {
