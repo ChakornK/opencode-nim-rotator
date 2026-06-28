@@ -1,53 +1,52 @@
-import { join } from "path";
-import { homedir } from "os";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { Box, Text } from "@opentui/core";
 import {
-  getActiveTheme,
-  getTheme,
-  getResolvedTheme,
-  getThemeOverride,
-  listThemes,
-  saveThemeOverride,
-  setPreviewTheme,
-  dangerSelectColors,
-} from "../themes.js";
-import {
-  addKey,
-  readAndValidateImportFile,
-  validateImportPayload,
-  removeKey,
-  renameKey,
+	addKey,
+	readAndValidateImportFile,
+	removeKey,
+	renameKey,
+	validateImportPayload,
 } from "../storage.js";
 import {
-  state,
-  navigate,
-  callRenderApp,
-  refreshStore,
-  setStatus,
-  clampIndex,
-  safeSaveStore,
-} from "./state.js";
+	dangerSelectColors,
+	getActiveTheme,
+	getResolvedTheme,
+	getTheme,
+	getThemeOverride,
+	listThemes,
+	saveThemeOverride,
+	setPreviewTheme,
+} from "../themes.js";
 import {
-  themedSelect,
-  themedInput,
-  events,
-  maskKey,
-  applyThemeToScreen,
-} from "./ui.js";
+	fetchNimModels,
+	handleExport,
+	handleFallbackMenuSelect,
+	handleImportConfirm,
+	handleKeyAction,
+	handleMenuSelect,
+} from "./actions.js";
+import type { BenchmarkRunner } from "./benchmark.js";
+import {
+	callRenderApp,
+	clampIndex,
+	navigate,
+	refreshStore,
+	safeSaveStore,
+	setStatus,
+	state,
+} from "./state.js";
 import type { ScreenContent, SelectOption } from "./types.js";
 import {
-  handleMenuSelect,
-  handleKeyAction,
-  handleExport,
-  handleImportConfirm,
-  handleFallbackChainKey,
-  handleFallbackMenuSelect,
-  fetchNimModels,
-  addFallbackModel,
-} from "./actions.js";
+	applyThemeToScreen,
+	events,
+	maskKey,
+	themedInput,
+	themedSelect,
+} from "./ui.js";
 
 function keyStatus(entry: { enabled: boolean }): string {
-  return !entry.enabled ? "OFF" : "OK";
+	return !entry.enabled ? "OFF" : "OK";
 }
 
 // ---------------------------------------------------------------------------
@@ -55,66 +54,66 @@ function keyStatus(entry: { enabled: boolean }): string {
 // ---------------------------------------------------------------------------
 
 export function buildMainMenu(): ScreenContent {
-  const { store } = state;
-  const hasKeys = store.keys.length > 0;
-  const theme = getActiveTheme();
-  const override = getThemeOverride();
+	const { store } = state;
+	const hasKeys = store.keys.length > 0;
+	const theme = getActiveTheme();
+	const override = getThemeOverride();
 
-  const opts: (SelectOption | false)[] = [
-    hasKeys && {
-      name: "Manage Keys",
-      description: "Select a key to rename, delete, or toggle",
-      value: "manage",
-    },
-    {
-      name: "Add Key",
-      description: "Add a new NVIDIA NIM API key",
-      value: "add",
-    },
-    hasKeys && {
-      name: "Reset Failures",
-      description: "Reset all failure counts to zero",
-      value: "reset-failures",
-    },
-    hasKeys && {
-      name: "Export Keys",
-      description: "Export all keys to a JSON file",
-      value: "export",
-    },
-    {
-      name: "Import Keys",
-      description: "Import keys from a JSON file",
-      value: "import",
-    },
-    {
-      name: `Strategy: ${store.rotationStrategy}`,
-      description: "Toggle between round-robin and least-failures",
-      value: "toggle-strategy",
-    },
-    {
-      name: `Theme: ${theme.name}${!override ? " (synced with opencode)" : ""}`,
-      description: "Change the color theme",
-      value: "theme",
-    },
-    { name: "Quit", description: "Exit the key manager", value: "quit" },
-  ];
-  const options = opts.filter(Boolean) as SelectOption[];
+	const opts: (SelectOption | false)[] = [
+		hasKeys && {
+			name: "Manage Keys",
+			description: "Select a key to rename, delete, or toggle",
+			value: "manage",
+		},
+		{
+			name: "Add Key",
+			description: "Add a new NVIDIA NIM API key",
+			value: "add",
+		},
+		hasKeys && {
+			name: "Reset Failures",
+			description: "Reset all failure counts to zero",
+			value: "reset-failures",
+		},
+		hasKeys && {
+			name: "Export Keys",
+			description: "Export all keys to a JSON file",
+			value: "export",
+		},
+		{
+			name: "Import Keys",
+			description: "Import keys from a JSON file",
+			value: "import",
+		},
+		{
+			name: `Strategy: ${store.rotationStrategy}`,
+			description: "Toggle between round-robin and least-failures",
+			value: "toggle-strategy",
+		},
+		{
+			name: `Theme: ${theme.name}${!override ? " (synced with opencode)" : ""}`,
+			description: "Change the color theme",
+			value: "theme",
+		},
+		{ name: "Quit", description: "Exit the key manager", value: "quit" },
+	];
+	const options = opts.filter(Boolean) as SelectOption[];
 
-  state.mainMenuIndex = clampIndex(state.mainMenuIndex, options.length);
+	state.mainMenuIndex = clampIndex(state.mainMenuIndex, options.length);
 
-  const menu = themedSelect(
-    "main-menu",
-    56,
-    12,
-    options,
-    state.mainMenuIndex,
-    (idx, opt) => {
-      state.mainMenuIndex = idx;
-      handleMenuSelect(opt.value);
-    },
-  );
+	const menu = themedSelect(
+		"main-menu",
+		56,
+		12,
+		options,
+		state.mainMenuIndex,
+		(idx, opt) => {
+			state.mainMenuIndex = idx;
+			handleMenuSelect(opt.value);
+		},
+	);
 
-  return { element: menu, helpText: "[Ctrl+C] quit" };
+	return { element: menu, helpText: "[Ctrl+C] quit" };
 }
 
 // ---------------------------------------------------------------------------
@@ -122,44 +121,44 @@ export function buildMainMenu(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildKeySelector(): ScreenContent {
-  const options: SelectOption[] = state.store.keys.map((entry) => ({
-    name: `${entry.name} [${keyStatus(entry)}]`,
-    description: `${maskKey(entry.key)} rl:${entry.rateLimitCount} ${entry.lastUsedAt ? new Date(entry.lastUsedAt).toLocaleString() : "never used"}`,
-    value: entry.id,
-  }));
+	const options: SelectOption[] = state.store.keys.map((entry) => ({
+		name: `${entry.name} [${keyStatus(entry)}]`,
+		description: `${maskKey(entry.key)} rl:${entry.rateLimitCount} ${entry.lastUsedAt ? new Date(entry.lastUsedAt).toLocaleString() : "never used"}`,
+		value: entry.id,
+	}));
 
-  if (options.length === 0) {
-    navigate("list");
-    return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
-  }
+	if (options.length === 0) {
+		navigate("list");
+		return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
+	}
 
-  state.keySelectorIndex = clampIndex(state.keySelectorIndex, options.length);
+	state.keySelectorIndex = clampIndex(state.keySelectorIndex, options.length);
 
-  const selector = themedSelect(
-    "key-selector",
-    56,
-    12,
-    options,
-    state.keySelectorIndex,
-    (idx, opt) => {
-      state.keySelectorIndex = idx;
-      state.selectedKeyId = opt.value;
-      state.keyActionsIndex = 0;
-      navigate("key-actions");
-    },
-  );
+	const selector = themedSelect(
+		"key-selector",
+		56,
+		12,
+		options,
+		state.keySelectorIndex,
+		(idx, opt) => {
+			state.keySelectorIndex = idx;
+			state.selectedKeyId = opt.value;
+			state.keyActionsIndex = 0;
+			navigate("key-actions");
+		},
+	);
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({
-        content: " Select a key to manage:",
-        fg: getActiveTheme().primary,
-      }),
-      selector,
-    ),
-    helpText: "[Esc] back",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({
+				content: " Select a key to manage:",
+				fg: getActiveTheme().primary,
+			}),
+			selector,
+		),
+		helpText: "[Esc] back",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -167,63 +166,63 @@ export function buildKeySelector(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildKeyActions(): ScreenContent {
-  const { selectedKeyId } = state;
-  if (!selectedKeyId) {
-    navigate("key-selector");
-    return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
-  }
+	const { selectedKeyId } = state;
+	if (!selectedKeyId) {
+		navigate("key-selector");
+		return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
+	}
 
-  const entry = state.store.keys.find((k) => k.id === selectedKeyId);
-  if (!entry) {
-    state.selectedKeyId = null;
-    navigate("key-selector");
-    return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
-  }
+	const entry = state.store.keys.find((k) => k.id === selectedKeyId);
+	if (!entry) {
+		state.selectedKeyId = null;
+		navigate("key-selector");
+		return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
+	}
 
-  const options: SelectOption[] = [
-    {
-      name: `Toggle ${entry.enabled ? "OFF" : "ON"}`,
-      description: `${entry.enabled ? "Disable" : "Enable"} this key`,
-      value: "toggle",
-    },
-    {
-      name: "Rename",
-      description: "Change the friendly name",
-      value: "rename",
-    },
-    {
-      name: "Delete",
-      description: "Remove this key permanently",
-      value: "delete",
-    },
-    { name: "Back", description: "Return to key list", value: "back" },
-  ];
+	const options: SelectOption[] = [
+		{
+			name: `Toggle ${entry.enabled ? "OFF" : "ON"}`,
+			description: `${entry.enabled ? "Disable" : "Enable"} this key`,
+			value: "toggle",
+		},
+		{
+			name: "Rename",
+			description: "Change the friendly name",
+			value: "rename",
+		},
+		{
+			name: "Delete",
+			description: "Remove this key permanently",
+			value: "delete",
+		},
+		{ name: "Back", description: "Return to key list", value: "back" },
+	];
 
-  state.keyActionsIndex = clampIndex(state.keyActionsIndex, options.length);
+	state.keyActionsIndex = clampIndex(state.keyActionsIndex, options.length);
 
-  const actions = themedSelect(
-    "key-actions",
-    40,
-    8,
-    options,
-    state.keyActionsIndex,
-    (idx, opt) => {
-      state.keyActionsIndex = idx;
-      handleKeyAction(opt.value);
-    },
-  );
+	const actions = themedSelect(
+		"key-actions",
+		40,
+		8,
+		options,
+		state.keyActionsIndex,
+		(idx, opt) => {
+			state.keyActionsIndex = idx;
+			handleKeyAction(opt.value);
+		},
+	);
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({
-        content: ` Key: ${entry.name} (${maskKey(entry.key)})`,
-        fg: getActiveTheme().primary,
-      }),
-      actions,
-    ),
-    helpText: "[Esc] back",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({
+				content: ` Key: ${entry.name} (${maskKey(entry.key)})`,
+				fg: getActiveTheme().primary,
+			}),
+			actions,
+		),
+		helpText: "[Esc] back",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -231,73 +230,73 @@ export function buildKeyActions(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildThemeSelector(): ScreenContent {
-  const theme = getActiveTheme();
-  const allThemes = listThemes();
-  const currentOverride = getThemeOverride();
-  const resolvedId = getResolvedTheme().id;
-  const activeId = theme.id;
+	const theme = getActiveTheme();
+	const allThemes = listThemes();
+	const currentOverride = getThemeOverride();
+	const resolvedId = getResolvedTheme().id;
+	const activeId = theme.id;
 
-  const options: SelectOption[] = [
-    {
-      name: "sync",
-      description: "Sync with opencode theme (default)",
-      value: "sync",
-    },
-    ...allThemes.map((th) => ({
-      name: th.id,
-      description: `${th.name}${th.id === activeId ? " *" : ""}${th.id === resolvedId && !currentOverride ? " (opencode)" : ""}`,
-      value: th.id,
-    })),
-  ];
+	const options: SelectOption[] = [
+		{
+			name: "sync",
+			description: "Sync with opencode theme (default)",
+			value: "sync",
+		},
+		...allThemes.map((th) => ({
+			name: th.id,
+			description: `${th.name}${th.id === activeId ? " *" : ""}${th.id === resolvedId && !currentOverride ? " (opencode)" : ""}`,
+			value: th.id,
+		})),
+	];
 
-  state.themeSelectorIndex = clampIndex(
-    currentOverride ? options.findIndex((o) => o.value === currentOverride) : 0,
-    options.length,
-  );
+	state.themeSelectorIndex = clampIndex(
+		currentOverride ? options.findIndex((o) => o.value === currentOverride) : 0,
+		options.length,
+	);
 
-  const selector = themedSelect(
-    "theme-selector",
-    56,
-    12,
-    options,
-    state.themeSelectorIndex,
-    (_index, option) => {
-      state.themeSelectorIndex = _index;
-      setPreviewTheme(null);
-      if (option.value === "sync") {
-        saveThemeOverride("");
-        setStatus("Theme synced with opencode", theme.success);
-      } else {
-        saveThemeOverride(option.value);
-        setStatus(`Theme set to ${option.value}`, theme.success);
-      }
-      refreshStore();
-      navigate("list");
-    },
-  );
+	const selector = themedSelect(
+		"theme-selector",
+		56,
+		12,
+		options,
+		state.themeSelectorIndex,
+		(_index, option) => {
+			state.themeSelectorIndex = _index;
+			setPreviewTheme(null);
+			if (option.value === "sync") {
+				saveThemeOverride("");
+				setStatus("Theme synced with opencode", theme.success);
+			} else {
+				saveThemeOverride(option.value);
+				setStatus(`Theme set to ${option.value}`, theme.success);
+			}
+			refreshStore();
+			navigate("list");
+		},
+	);
 
-  events(selector).on("selectionChanged", (index: number) => {
-    state.themeSelectorIndex = index;
-    const option = options[index];
-    if (!option) return;
-    const previewId =
-      option.value === "sync" ? getResolvedTheme().id : option.value;
-    setPreviewTheme(previewId);
-    applyThemeToScreen(getTheme(previewId));
-  });
+	events(selector).on("selectionChanged", (index: number) => {
+		state.themeSelectorIndex = index;
+		const option = options[index];
+		if (!option) return;
+		const previewId =
+			option.value === "sync" ? getResolvedTheme().id : option.value;
+		setPreviewTheme(previewId);
+		applyThemeToScreen(getTheme(previewId));
+	});
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({
-        id: "theme-label",
-        content: " Select a theme:",
-        fg: theme.primary,
-      }),
-      selector,
-    ),
-    helpText: "[Esc] back  [Enter] apply",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({
+				id: "theme-label",
+				content: " Select a theme:",
+				fg: theme.primary,
+			}),
+			selector,
+		),
+		helpText: "[Esc] back  [Enter] apply",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -305,52 +304,52 @@ export function buildThemeSelector(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildConfirmDelete(): ScreenContent {
-  const entry = state.store.keys.find((k) => k.id === state.deleteTargetId);
-  const name = entry?.name ?? "this key";
+	const entry = state.store.keys.find((k) => k.id === state.deleteTargetId);
+	const name = entry?.name ?? "this key";
 
-  const options: SelectOption[] = [
-    {
-      name: "Yes, delete",
-      description: `Permanently remove "${name}"`,
-      value: "yes",
-    },
-    { name: "No, cancel", description: "Keep the key", value: "no" },
-  ];
+	const options: SelectOption[] = [
+		{
+			name: "Yes, delete",
+			description: `Permanently remove "${name}"`,
+			value: "yes",
+		},
+		{ name: "No, cancel", description: "Keep the key", value: "no" },
+	];
 
-  const confirm = themedSelect(
-    "confirm-delete",
-    40,
-    6,
-    options,
-    0,
-    (_index, option) => {
-      if (option.value === "yes" && state.deleteTargetId) {
-        const e = state.store.keys.find((k) => k.id === state.deleteTargetId);
-        const n = e?.name ?? "key";
-        removeKey(state.store, state.deleteTargetId);
-        safeSaveStore();
-        refreshStore();
-        if (state.keySelectorIndex >= state.store.keys.length)
-          state.keySelectorIndex = Math.max(0, state.store.keys.length - 1);
-        setStatus(`Deleted "${n}"`, getActiveTheme().error);
-      }
-      state.deleteTargetId = null;
-      navigate("key-actions");
-    },
-    dangerSelectColors(getActiveTheme()),
-  );
+	const confirm = themedSelect(
+		"confirm-delete",
+		40,
+		6,
+		options,
+		0,
+		(_index, option) => {
+			if (option.value === "yes" && state.deleteTargetId) {
+				const e = state.store.keys.find((k) => k.id === state.deleteTargetId);
+				const n = e?.name ?? "key";
+				removeKey(state.store, state.deleteTargetId);
+				safeSaveStore();
+				refreshStore();
+				if (state.keySelectorIndex >= state.store.keys.length)
+					state.keySelectorIndex = Math.max(0, state.store.keys.length - 1);
+				setStatus(`Deleted "${n}"`, getActiveTheme().error);
+			}
+			state.deleteTargetId = null;
+			navigate("key-actions");
+		},
+		dangerSelectColors(getActiveTheme()),
+	);
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({
-        content: "Are you sure you want to delete this key?",
-        fg: getActiveTheme().error,
-      }),
-      confirm,
-    ),
-    helpText: "[Esc] cancel",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({
+				content: "Are you sure you want to delete this key?",
+				fg: getActiveTheme().error,
+			}),
+			confirm,
+		),
+		helpText: "[Esc] cancel",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -358,36 +357,36 @@ export function buildConfirmDelete(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildAddNameInput(): ScreenContent {
-  const theme = getActiveTheme();
-  const input = themedInput(
-    "add-name-input",
-    "e.g. work-key, personal, team-alpha",
-    40,
-  );
+	const theme = getActiveTheme();
+	const input = themedInput(
+		"add-name-input",
+		"e.g. work-key, personal, team-alpha",
+		40,
+	);
 
-  events(input).on("enter", (value: string) => {
-    state.pendingKeyName = value.trim();
-    if (!state.pendingKeyName) {
-      setStatus("Name is required", theme.error);
-      callRenderApp();
-      return;
-    }
-    if (state.store.keys.some((k) => k.name === state.pendingKeyName)) {
-      setStatus("A key with this name already exists", theme.error);
-      callRenderApp();
-      return;
-    }
-    navigate("add-key");
-  });
+	events(input).on("enter", (value: string) => {
+		state.pendingKeyName = value.trim();
+		if (!state.pendingKeyName) {
+			setStatus("Name is required", theme.error);
+			callRenderApp();
+			return;
+		}
+		if (state.store.keys.some((k) => k.name === state.pendingKeyName)) {
+			setStatus("A key with this name already exists", theme.error);
+			callRenderApp();
+			return;
+		}
+		navigate("add-key");
+	});
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({ content: "Enter a friendly name for this key:", fg: theme.text }),
-      input,
-    ),
-    helpText: "[Enter] next  [Esc] cancel",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({ content: "Enter a friendly name for this key:", fg: theme.text }),
+			input,
+		),
+		helpText: "[Enter] next  [Esc] cancel",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -395,38 +394,38 @@ export function buildAddNameInput(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildAddKeyInput(): ScreenContent {
-  const theme = getActiveTheme();
-  const input = themedInput("add-key-input", "nvapi-...", 55);
+	const theme = getActiveTheme();
+	const input = themedInput("add-key-input", "nvapi-...", 55);
 
-  events(input).on("enter", (value: string) => {
-    const key = value.trim();
-    if (!key) {
-      setStatus("API key is required", theme.error);
-      callRenderApp();
-      return;
-    }
-    if (!key.startsWith("nvapi-")) {
-      setStatus("Key must start with 'nvapi-'", theme.error);
-      callRenderApp();
-      return;
-    }
-    addKey(state.store, state.pendingKeyName, key);
-    safeSaveStore();
-    refreshStore();
-    setStatus(`Added key "${state.pendingKeyName}"`, theme.success);
-    state.pendingKeyName = "";
-    navigate("list");
-  });
+	events(input).on("enter", (value: string) => {
+		const key = value.trim();
+		if (!key) {
+			setStatus("API key is required", theme.error);
+			callRenderApp();
+			return;
+		}
+		if (!key.startsWith("nvapi-")) {
+			setStatus("Key must start with 'nvapi-'", theme.error);
+			callRenderApp();
+			return;
+		}
+		addKey(state.store, state.pendingKeyName, key);
+		safeSaveStore();
+		refreshStore();
+		setStatus(`Added key "${state.pendingKeyName}"`, theme.success);
+		state.pendingKeyName = "";
+		navigate("list");
+	});
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({ content: `Name: ${state.pendingKeyName}`, fg: theme.primary }),
-      Text({ content: "Enter the NVIDIA NIM API key:", fg: theme.text }),
-      input,
-    ),
-    helpText: "[Enter] confirm  [Esc] cancel",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({ content: `Name: ${state.pendingKeyName}`, fg: theme.primary }),
+			Text({ content: "Enter the NVIDIA NIM API key:", fg: theme.text }),
+			input,
+		),
+		helpText: "[Enter] confirm  [Esc] cancel",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -434,55 +433,55 @@ export function buildAddKeyInput(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildRenameInput(): ScreenContent {
-  const theme = getActiveTheme();
-  if (!state.renameTargetId) {
-    return {
-      element: Text({ content: "Error: no key selected", fg: theme.error }),
-      helpText: "",
-    };
-  }
-  const entry = state.store.keys.find((k) => k.id === state.renameTargetId);
-  const currentName = entry?.name ?? "";
+	const theme = getActiveTheme();
+	if (!state.renameTargetId) {
+		return {
+			element: Text({ content: "Error: no key selected", fg: theme.error }),
+			helpText: "",
+		};
+	}
+	const entry = state.store.keys.find((k) => k.id === state.renameTargetId);
+	const currentName = entry?.name ?? "";
 
-  const input = themedInput(
-    "rename-input",
-    "New friendly name",
-    40,
-    currentName,
-  );
+	const input = themedInput(
+		"rename-input",
+		"New friendly name",
+		40,
+		currentName,
+	);
 
-  events(input).on("enter", (value: string) => {
-    const newName = value.trim();
-    if (!newName) {
-      setStatus("Name is required", theme.error);
-      callRenderApp();
-      return;
-    }
-    if (
-      state.store.keys.some(
-        (k) => k.name === newName && k.id !== state.renameTargetId,
-      )
-    ) {
-      setStatus("A key with this name already exists", theme.error);
-      callRenderApp();
-      return;
-    }
-    renameKey(state.store, state.renameTargetId!, newName);
-    safeSaveStore();
-    refreshStore();
-    setStatus(`Renamed to "${newName}"`, theme.success);
-    state.renameTargetId = null;
-    navigate("key-actions");
-  });
+	events(input).on("enter", (value: string) => {
+		const newName = value.trim();
+		if (!newName) {
+			setStatus("Name is required", theme.error);
+			callRenderApp();
+			return;
+		}
+		if (
+			state.store.keys.some(
+				(k) => k.name === newName && k.id !== state.renameTargetId,
+			)
+		) {
+			setStatus("A key with this name already exists", theme.error);
+			callRenderApp();
+			return;
+		}
+		renameKey(state.store, state.renameTargetId as string, newName);
+		safeSaveStore();
+		refreshStore();
+		setStatus(`Renamed to "${newName}"`, theme.success);
+		state.renameTargetId = null;
+		navigate("key-actions");
+	});
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({ content: "Enter new name:", fg: theme.text }),
-      input,
-    ),
-    helpText: "[Enter] confirm [Esc] cancel",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({ content: "Enter new name:", fg: theme.text }),
+			input,
+		),
+		helpText: "[Enter] confirm [Esc] cancel",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -490,34 +489,34 @@ export function buildRenameInput(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildExportPathInput(): ScreenContent {
-  const theme = getActiveTheme();
-  const defaultPath = "~/nim-keys-export.json";
-  const input = themedInput("export-path-input", defaultPath, 55);
+	const theme = getActiveTheme();
+	const defaultPath = "~/nim-keys-export.json";
+	const input = themedInput("export-path-input", defaultPath, 55);
 
-  events(input).on("enter", (value: string) => {
-    let filePath = value.trim();
-    if (!filePath) {
-      setStatus("File path is required", theme.error);
-      callRenderApp();
-      return;
-    }
-    if (filePath.startsWith("~/")) {
-      filePath = join(homedir(), filePath.slice(2));
-    }
-    handleExport(filePath);
-  });
+	events(input).on("enter", (value: string) => {
+		let filePath = value.trim();
+		if (!filePath) {
+			setStatus("File path is required", theme.error);
+			callRenderApp();
+			return;
+		}
+		if (filePath.startsWith("~/")) {
+			filePath = join(homedir(), filePath.slice(2));
+		}
+		handleExport(filePath);
+	});
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({
-        content: `Export ${state.store.keys.length} key(s) to JSON file:`,
-        fg: theme.text,
-      }),
-      input,
-    ),
-    helpText: "[Enter] export [Esc] cancel",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({
+				content: `Export ${state.store.keys.length} key(s) to JSON file:`,
+				fg: theme.text,
+			}),
+			input,
+		),
+		helpText: "[Enter] export [Esc] cancel",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -525,57 +524,57 @@ export function buildExportPathInput(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildImportPathInput(): ScreenContent {
-  const theme = getActiveTheme();
-  const input = themedInput("import-path-input", "~/nim-keys-export.json", 55);
+	const theme = getActiveTheme();
+	const input = themedInput("import-path-input", "~/nim-keys-export.json", 55);
 
-  events(input).on("enter", (value: string) => {
-    let filePath = value.trim();
-    if (!filePath) {
-      setStatus("File path is required", theme.error);
-      callRenderApp();
-      return;
-    }
-    if (filePath.startsWith("~/")) {
-      filePath = join(homedir(), filePath.slice(2));
-    }
+	events(input).on("enter", (value: string) => {
+		let filePath = value.trim();
+		if (!filePath) {
+			setStatus("File path is required", theme.error);
+			callRenderApp();
+			return;
+		}
+		if (filePath.startsWith("~/")) {
+			filePath = join(homedir(), filePath.slice(2));
+		}
 
-    const fileResult = readAndValidateImportFile(filePath);
-    if ("error" in fileResult) {
-      setStatus(fileResult.error, theme.error);
-      callRenderApp();
-      return;
-    }
+		const fileResult = readAndValidateImportFile(filePath);
+		if ("error" in fileResult) {
+			setStatus(fileResult.error, theme.error);
+			callRenderApp();
+			return;
+		}
 
-    const result = validateImportPayload(fileResult.raw);
+		const result = validateImportPayload(fileResult.raw);
 
-    if (result.errors.length > 0) {
-      setStatus(`Import error: ${result.errors[0]}`, theme.error);
-      callRenderApp();
-      return;
-    }
+		if (result.errors.length > 0) {
+			setStatus(`Import error: ${result.errors[0]}`, theme.error);
+			callRenderApp();
+			return;
+		}
 
-    if (result.pendingKeys.length === 0) {
-      setStatus("No valid keys found in file", theme.warning);
-      navigate("list");
-      return;
-    }
+		if (result.pendingKeys.length === 0) {
+			setStatus("No valid keys found in file", theme.warning);
+			navigate("list");
+			return;
+		}
 
-    state.pendingImportPath = filePath;
-    state.pendingImportResult = result;
-    navigate("confirm-import");
-  });
+		state.pendingImportPath = filePath;
+		state.pendingImportResult = result;
+		navigate("confirm-import");
+	});
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({
-        content: "Import keys from JSON file:",
-        fg: theme.text,
-      }),
-      input,
-    ),
-    helpText: "[Enter] import [Esc] cancel",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({
+				content: "Import keys from JSON file:",
+				fg: theme.text,
+			}),
+			input,
+		),
+		helpText: "[Enter] import [Esc] cancel",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -583,50 +582,50 @@ export function buildImportPathInput(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildConfirmImport(): ScreenContent {
-  const theme = getActiveTheme();
-  const result = state.pendingImportResult;
-  if (!result) {
-    navigate("list");
-    return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
-  }
+	const theme = getActiveTheme();
+	const result = state.pendingImportResult;
+	if (!result) {
+		navigate("list");
+		return { element: Text({ content: "", fg: "#000000" }), helpText: "" };
+	}
 
-  const parts: string[] = [];
-  if (result.pendingKeys.length > 0)
-    parts.push(`${result.pendingKeys.length} key(s) will be imported`);
-  if (result.errors.length > 0)
-    parts.push(`${result.errors.length} entry/entries invalid`);
+	const parts: string[] = [];
+	if (result.pendingKeys.length > 0)
+		parts.push(`${result.pendingKeys.length} key(s) will be imported`);
+	if (result.errors.length > 0)
+		parts.push(`${result.errors.length} entry/entries invalid`);
 
-  const options: SelectOption[] = [
-    {
-      name: "Yes, import",
-      description: parts.join(", "),
-      value: "yes",
-    },
-    { name: "No, cancel", description: "Discard the import", value: "no" },
-  ];
+	const options: SelectOption[] = [
+		{
+			name: "Yes, import",
+			description: parts.join(", "),
+			value: "yes",
+		},
+		{ name: "No, cancel", description: "Discard the import", value: "no" },
+	];
 
-  const confirm = themedSelect(
-    "confirm-import",
-    50,
-    6,
-    options,
-    0,
-    (_index, option) => {
-      handleImportConfirm(option.value);
-    },
-  );
+	const confirm = themedSelect(
+		"confirm-import",
+		50,
+		6,
+		options,
+		0,
+		(_index, option) => {
+			handleImportConfirm(option.value);
+		},
+	);
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Text({
-        content: `Confirm import from: ${state.pendingImportPath}`,
-        fg: theme.primary,
-      }),
-      confirm,
-    ),
-    helpText: "[Esc] cancel",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Text({
+				content: `Confirm import from: ${state.pendingImportPath}`,
+				fg: theme.primary,
+			}),
+			confirm,
+		),
+		helpText: "[Esc] cancel",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -634,41 +633,41 @@ export function buildConfirmImport(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildFallbackMenu(): ScreenContent {
-  const theme = getActiveTheme();
-  const chain = state.store.fallbackChain;
+	const _theme = getActiveTheme();
+	const chain = state.store.fallbackChain;
 
-  const opts: (SelectOption | false)[] = [
-    {
-      name: "Edit Fallback Chain",
-      description: `Manage the model fallback order (${chain.length} models)`,
-      value: "edit-chain",
-    },
-    {
-      name: `Rate Limit Threshold: ${state.store.maxRateLimitFailures}`,
-      description: "Number of rate limits before fallback activates",
-      value: "settings",
-    },
-  ];
-  const options = opts.filter(Boolean) as SelectOption[];
+	const opts: (SelectOption | false)[] = [
+		{
+			name: "Edit Fallback Chain",
+			description: `Manage the model fallback order (${chain.length} models)`,
+			value: "edit-chain",
+		},
+		{
+			name: `Rate Limit Threshold: ${state.store.maxRateLimitFailures}`,
+			description: "Number of rate limits before fallback activates",
+			value: "settings",
+		},
+	];
+	const options = opts.filter(Boolean) as SelectOption[];
 
-  state.fallbackSettingsIndex = clampIndex(
-    state.fallbackSettingsIndex,
-    options.length,
-  );
+	state.fallbackSettingsIndex = clampIndex(
+		state.fallbackSettingsIndex,
+		options.length,
+	);
 
-  const menu = themedSelect(
-    "fallback-menu",
-    56,
-    8,
-    options,
-    state.fallbackSettingsIndex,
-    (idx, opt) => {
-      state.fallbackSettingsIndex = idx;
-      handleFallbackMenuSelect(opt.value);
-    },
-  );
+	const menu = themedSelect(
+		"fallback-menu",
+		56,
+		8,
+		options,
+		state.fallbackSettingsIndex,
+		(idx, opt) => {
+			state.fallbackSettingsIndex = idx;
+			handleFallbackMenuSelect(opt.value);
+		},
+	);
 
-  return { element: menu, helpText: "[Tab] switch tabs  [Ctrl+C] quit" };
+	return { element: menu, helpText: "[Tab] switch tabs  [Ctrl+C] quit" };
 }
 
 // ---------------------------------------------------------------------------
@@ -676,70 +675,70 @@ export function buildFallbackMenu(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function buildFallbackSettings(): ScreenContent {
-  const theme = getActiveTheme();
-  const current = state.store.maxRateLimitFailures;
+	const theme = getActiveTheme();
+	const current = state.store.maxRateLimitFailures;
 
-  const options: SelectOption[] = [
-    {
-      name: "+1",
-      description: `Increase threshold to ${current + 1}`,
-      value: "inc",
-    },
-    {
-      name: "-1",
-      description: `Decrease threshold to ${Math.max(1, current - 1)}`,
-      value: "dec",
-    },
-    { name: "Back", description: "Return to fallback menu", value: "back" },
-  ];
+	const options: SelectOption[] = [
+		{
+			name: "+1",
+			description: `Increase threshold to ${current + 1}`,
+			value: "inc",
+		},
+		{
+			name: "-1",
+			description: `Decrease threshold to ${Math.max(1, current - 1)}`,
+			value: "dec",
+		},
+		{ name: "Back", description: "Return to fallback menu", value: "back" },
+	];
 
-  const selector = themedSelect(
-    "fallback-settings",
-    56,
-    8,
-    options,
-    Math.max(0, state.fallbackSettingsIndex - 1),
-    (idx, opt) => {
-      if (opt.value === "inc") {
-        state.store.maxRateLimitFailures = current + 1;
-        safeSaveStore();
-        refreshStore();
-        state.fallbackSettingsIndex = idx + 1;
-        callRenderApp();
-      } else if (opt.value === "dec") {
-        state.store.maxRateLimitFailures = Math.max(1, current - 1);
-        safeSaveStore();
-        refreshStore();
-        state.fallbackSettingsIndex = idx + 1;
-        callRenderApp();
-      } else if (opt.value === "back") {
-        navigate("fallback-menu");
-      }
-    },
-  );
+	const selector = themedSelect(
+		"fallback-settings",
+		56,
+		8,
+		options,
+		Math.max(0, state.fallbackSettingsIndex - 1),
+		(idx, opt) => {
+			if (opt.value === "inc") {
+				state.store.maxRateLimitFailures = current + 1;
+				safeSaveStore();
+				refreshStore();
+				state.fallbackSettingsIndex = idx + 1;
+				callRenderApp();
+			} else if (opt.value === "dec") {
+				state.store.maxRateLimitFailures = Math.max(1, current - 1);
+				safeSaveStore();
+				refreshStore();
+				state.fallbackSettingsIndex = idx + 1;
+				callRenderApp();
+			} else if (opt.value === "back") {
+				navigate("fallback-menu");
+			}
+		},
+	);
 
-  events(selector).on("selectionChanged", (index: number) => {
-    state.fallbackSettingsIndex = index + 1;
-  });
+	events(selector).on("selectionChanged", (index: number) => {
+		state.fallbackSettingsIndex = index + 1;
+	});
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 1 },
-      Box(
-        { flexDirection: "column" },
-        Text({
-          content: " Fallback Settings:",
-          fg: theme.primary,
-        }),
-        Text({
-          content: ` Fallback after ${current} consecutive rate limit${current === 1 ? "" : "s"}`,
-          fg: theme.textMuted,
-        }),
-      ),
-      selector,
-    ),
-    helpText: "[Esc] back",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 1 },
+			Box(
+				{ flexDirection: "column" },
+				Text({
+					content: " Fallback Settings:",
+					fg: theme.primary,
+				}),
+				Text({
+					content: ` Fallback after ${current} consecutive rate limit${current === 1 ? "" : "s"}`,
+					fg: theme.textMuted,
+				}),
+			),
+			selector,
+		),
+		helpText: "[Esc] back",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -747,160 +746,160 @@ export function buildFallbackSettings(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 const BRAILLE_SPINNER_FRAMES = [
-  "\u280B", // ⠋
-  "\u2819", // ⠙
-  "\u2839", // ⠹
-  "\u2838", // ⠸
-  "\u283C", // ⠼
-  "\u2834", // ⠴
-  "\u2826", // ⠦
-  "\u2827", // ⠧
-  "\u2807", // ⠇
-  "\u280F", // ⠏
+	"\u280B", // ⠋
+	"\u2819", // ⠙
+	"\u2839", // ⠹
+	"\u2838", // ⠸
+	"\u283C", // ⠼
+	"\u2834", // ⠴
+	"\u2826", // ⠦
+	"\u2827", // ⠧
+	"\u2807", // ⠇
+	"\u280F", // ⠏
 ];
 
 function getBrailleSpinner(): string {
-  const frame = Math.floor(Date.now() / 80) % BRAILLE_SPINNER_FRAMES.length;
-  return BRAILLE_SPINNER_FRAMES[frame]!;
+	const frame = Math.floor(Date.now() / 80) % BRAILLE_SPINNER_FRAMES.length;
+	return BRAILLE_SPINNER_FRAMES[frame] as string;
 }
 
 export function buildFallbackChain(): ScreenContent {
-  const theme = getActiveTheme();
-  const chain = state.store.fallbackChain;
-  const totalItems = chain.length + 1; // +1 for "Add model"
+	const theme = getActiveTheme();
+	const chain = state.store.fallbackChain;
+	const totalItems = chain.length + 1; // +1 for "Add model"
 
-  state.fallbackChainIndex = clampIndex(state.fallbackChainIndex, totalItems);
+	state.fallbackChainIndex = clampIndex(state.fallbackChainIndex, totalItems);
 
-  const viewportHeight = 12;
-  const listWidth = 56;
+	const viewportHeight = 12;
+	const listWidth = 56;
 
-  // Adjust scroll offset so the selected item is visible
-  if (state.fallbackChainIndex < state.fallbackChainScrollOffset) {
-    state.fallbackChainScrollOffset = state.fallbackChainIndex;
-  } else if (
-    state.fallbackChainIndex >=
-    state.fallbackChainScrollOffset + viewportHeight
-  ) {
-    state.fallbackChainScrollOffset =
-      state.fallbackChainIndex - viewportHeight + 1;
-  }
+	// Adjust scroll offset so the selected item is visible
+	if (state.fallbackChainIndex < state.fallbackChainScrollOffset) {
+		state.fallbackChainScrollOffset = state.fallbackChainIndex;
+	} else if (
+		state.fallbackChainIndex >=
+		state.fallbackChainScrollOffset + viewportHeight
+	) {
+		state.fallbackChainScrollOffset =
+			state.fallbackChainIndex - viewportHeight + 1;
+	}
 
-  const items: any[] = [];
-  const startIdx = state.fallbackChainScrollOffset;
-  const endIdx = Math.min(startIdx + viewportHeight, chain.length);
+	const items: ReturnType<typeof Box>[] = [];
+	const startIdx = state.fallbackChainScrollOffset;
+	const endIdx = Math.min(startIdx + viewportHeight, chain.length);
 
-  for (let i = startIdx; i < endIdx; i++) {
-    const model = chain[i];
-    const isSelected = i === state.fallbackChainIndex;
-    const isActivelyBenchmarking =
-      model.benchmarkStatus === "running" &&
-      state.benchmarkRunners.has(model.id);
+	for (let i = startIdx; i < endIdx; i++) {
+		const model = chain[i];
+		const isSelected = i === state.fallbackChainIndex;
+		const isActivelyBenchmarking =
+			model.benchmarkStatus === "running" &&
+			state.benchmarkRunners.has(model.id);
 
-    let statusText: string;
-    let statusIsError = false;
+		let statusText: string;
+		let statusIsError = false;
 
-    if (isActivelyBenchmarking) {
-      const runner = state.benchmarkRunners.get(model.id)!;
-      const m = runner.metrics;
-      const phase = runner.phase;
-      if (phase === "connecting") {
-        statusText = `${getBrailleSpinner()} connecting...`;
-      } else if (phase === "streaming") {
-        const ttfb = m.ttfb != null ? `${m.ttfb.toFixed(0)}ms` : "...";
-        const tps = m.tps != null ? `${m.tps.toFixed(1)}` : "...";
-        statusText = `${getBrailleSpinner()} ${ttfb} TTFB, ${tps} TPS`;
-      } else {
-        statusText = `${getBrailleSpinner()} benchmarking...`;
-      }
-    } else if (model.benchmarkStatus === "running") {
-      statusText = `${getBrailleSpinner()} benchmarking...`;
-    } else if (model.benchmarkStatus === "done") {
-      const ttfbStr =
-        model.benchmarkTtfb != null && Number.isFinite(model.benchmarkTtfb)
-          ? `${model.benchmarkTtfb.toFixed(0)}ms`
-          : "?ms";
-      const tpsStr =
-        model.benchmarkTps != null &&
-        Number.isFinite(model.benchmarkTps) &&
-        model.benchmarkTps > 0
-          ? `${model.benchmarkTps.toFixed(1)}`
-          : "?";
-      statusText = `\u2713 ${ttfbStr} TTFB, ${tpsStr} TPS`;
-    } else if (model.benchmarkStatus === "error") {
-      statusText = `\u2717 ${model.benchmarkError}`;
-      statusIsError = true;
-    } else {
-      statusText = "";
-    }
+		if (isActivelyBenchmarking) {
+			const runner = state.benchmarkRunners.get(model.id) as BenchmarkRunner;
+			const m = runner.metrics;
+			const phase = runner.phase;
+			if (phase === "connecting") {
+				statusText = `${getBrailleSpinner()} connecting...`;
+			} else if (phase === "streaming") {
+				const ttfb = m.ttfb != null ? `${m.ttfb.toFixed(0)}ms` : "...";
+				const tps = m.tps != null ? `${m.tps.toFixed(1)}` : "...";
+				statusText = `${getBrailleSpinner()} ${ttfb} TTFB, ${tps} TPS`;
+			} else {
+				statusText = `${getBrailleSpinner()} benchmarking...`;
+			}
+		} else if (model.benchmarkStatus === "running") {
+			statusText = `${getBrailleSpinner()} benchmarking...`;
+		} else if (model.benchmarkStatus === "done") {
+			const ttfbStr =
+				model.benchmarkTtfb != null && Number.isFinite(model.benchmarkTtfb)
+					? `${model.benchmarkTtfb.toFixed(0)}ms`
+					: "?ms";
+			const tpsStr =
+				model.benchmarkTps != null &&
+				Number.isFinite(model.benchmarkTps) &&
+				model.benchmarkTps > 0
+					? `${model.benchmarkTps.toFixed(1)}`
+					: "?";
+			statusText = `\u2713 ${ttfbStr} TTFB, ${tpsStr} TPS`;
+		} else if (model.benchmarkStatus === "error") {
+			statusText = `\u2717 ${model.benchmarkError}`;
+			statusIsError = true;
+		} else {
+			statusText = "";
+		}
 
-    const prefix = isSelected ? "\u25b6 " : "  ";
-    const nameWidth = listWidth - 4;
-    const displayName =
-      model.name.length > nameWidth
-        ? model.name.slice(0, nameWidth - 3) + "..."
-        : model.name;
+		const prefix = isSelected ? "\u25b6 " : "  ";
+		const nameWidth = listWidth - 4;
+		const displayName =
+			model.name.length > nameWidth
+				? `${model.name.slice(0, nameWidth - 3)}...`
+				: model.name;
 
-    items.push(
-      Box(
-        {
-          flexDirection: "row",
-          paddingX: 1,
-          backgroundColor: isSelected
-            ? theme.selectedBg
-            : theme.backgroundPanel,
-          width: listWidth,
-        },
-        Text({
-          content: `${prefix}${displayName}`,
-          fg: isSelected ? theme.selectedText : theme.text,
-          width: statusText ? nameWidth - statusText.length : nameWidth,
-        }),
-        statusText
-          ? Text({
-              content: statusText,
-              fg: statusIsError ? theme.error : theme.textMuted,
-            })
-          : Text({ content: "", fg: theme.backgroundPanel }),
-      ),
-    );
-  }
+		items.push(
+			Box(
+				{
+					flexDirection: "row",
+					paddingX: 1,
+					backgroundColor: isSelected
+						? theme.selectedBg
+						: theme.backgroundPanel,
+					width: listWidth,
+				},
+				Text({
+					content: `${prefix}${displayName}`,
+					fg: isSelected ? theme.selectedText : theme.text,
+					width: statusText ? nameWidth - statusText.length : nameWidth,
+				}),
+				statusText
+					? Text({
+							content: statusText,
+							fg: statusIsError ? theme.error : theme.textMuted,
+						})
+					: Text({ content: "", fg: theme.backgroundPanel }),
+			),
+		);
+	}
 
-  // "Add model" item at the end (only if visible in viewport)
-  const addModelIndex = chain.length;
-  const isAddVisible =
-    addModelIndex >= startIdx && addModelIndex < startIdx + viewportHeight;
-  if (isAddVisible) {
-    const isAddSelected = state.fallbackChainIndex === addModelIndex;
-    items.push(
-      Box(
-        {
-          flexDirection: "row",
-          paddingX: 1,
-          backgroundColor: isAddSelected
-            ? theme.selectedBg
-            : theme.backgroundPanel,
-          width: listWidth,
-        },
-        Text({
-          content: `${isAddSelected ? "\u25b6 " : "  "}+ Add model`,
-          fg: isAddSelected ? theme.selectedText : theme.textMuted,
-        }),
-      ),
-    );
-  }
+	// "Add model" item at the end (only if visible in viewport)
+	const addModelIndex = chain.length;
+	const isAddVisible =
+		addModelIndex >= startIdx && addModelIndex < startIdx + viewportHeight;
+	if (isAddVisible) {
+		const isAddSelected = state.fallbackChainIndex === addModelIndex;
+		items.push(
+			Box(
+				{
+					flexDirection: "row",
+					paddingX: 1,
+					backgroundColor: isAddSelected
+						? theme.selectedBg
+						: theme.backgroundPanel,
+					width: listWidth,
+				},
+				Text({
+					content: `${isAddSelected ? "\u25b6 " : "  "}+ Add model`,
+					fg: isAddSelected ? theme.selectedText : theme.textMuted,
+				}),
+			),
+		);
+	}
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 0, width: listWidth },
-      Text({
-        content: " Fallback Chain (ordered):",
-        fg: theme.primary,
-      }),
-      ...items,
-    ),
-    helpText:
-      "[\u2191\u2193] move  [x] remove  [j/k] reorder\n\n[a] add  [b] benchmark  [c] cancel",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 0, width: listWidth },
+			Text({
+				content: " Fallback Chain (ordered):",
+				fg: theme.primary,
+			}),
+			...items,
+		),
+		helpText:
+			"[\u2191\u2193] move  [x] remove  [j/k] reorder\n\n[a] add  [b] benchmark  [c] cancel",
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -908,139 +907,139 @@ export function buildFallbackChain(): ScreenContent {
 // ---------------------------------------------------------------------------
 
 export function getFilteredModelsForSelector(): Array<{
-  id: string;
-  name: string;
+	id: string;
+	name: string;
 }> {
-  const addedIds = new Set(state.store.fallbackChain.map((m) => m.id));
-  const filteredModels = state.availableModels.filter(
-    (model) => !addedIds.has(model.id),
-  );
-  const searchQuery = state.modelSearchQuery.toLowerCase();
-  return searchQuery.length > 0
-    ? filteredModels.filter(
-        (model) =>
-          model.name.toLowerCase().includes(searchQuery) ||
-          model.id.toLowerCase().includes(searchQuery),
-      )
-    : filteredModels;
+	const addedIds = new Set(state.store.fallbackChain.map((m) => m.id));
+	const filteredModels = state.availableModels.filter(
+		(model) => !addedIds.has(model.id),
+	);
+	const searchQuery = state.modelSearchQuery.toLowerCase();
+	return searchQuery.length > 0
+		? filteredModels.filter(
+				(model) =>
+					model.name.toLowerCase().includes(searchQuery) ||
+					model.id.toLowerCase().includes(searchQuery),
+			)
+		: filteredModels;
 }
 
 export function buildModelSelector(): ScreenContent {
-  const theme = getActiveTheme();
+	const theme = getActiveTheme();
 
-  if (state.availableModels.length === 0 && !state.modelsLoaded) {
-    state.modelsLoaded = true;
-    fetchNimModels().then(() => {
-      if (state.availableModels.length === 0) {
-        setStatus("No models available", getActiveTheme().warning);
-      }
-      callRenderApp();
-    });
+	if (state.availableModels.length === 0 && !state.modelsLoaded) {
+		state.modelsLoaded = true;
+		fetchNimModels().then(() => {
+			if (state.availableModels.length === 0) {
+				setStatus("No models available", getActiveTheme().warning);
+			}
+			callRenderApp();
+		});
 
-    return {
-      element: Box(
-        { flexDirection: "column", gap: 1 },
-        Text({
-          content: "Loading models from NVIDIA NIM...",
-          fg: theme.textMuted,
-        }),
-      ),
-      helpText: "[Esc] cancel",
-    };
-  }
+		return {
+			element: Box(
+				{ flexDirection: "column", gap: 1 },
+				Text({
+					content: "Loading models from NVIDIA NIM...",
+					fg: theme.textMuted,
+				}),
+			),
+			helpText: "[Esc] cancel",
+		};
+	}
 
-  const searchFilteredModels = getFilteredModelsForSelector();
+	const searchFilteredModels = getFilteredModelsForSelector();
 
-  // Reset scroll when entering model selector or when search changes
-  if (state.modelSelectorScrollOffset < 0) {
-    state.modelSelectorScrollOffset = 0;
-  }
+	// Reset scroll when entering model selector or when search changes
+	if (state.modelSelectorScrollOffset < 0) {
+		state.modelSelectorScrollOffset = 0;
+	}
 
-  state.modelSelectorIndex = clampIndex(
-    state.modelSelectorIndex,
-    searchFilteredModels.length,
-  );
+	state.modelSelectorIndex = clampIndex(
+		state.modelSelectorIndex,
+		searchFilteredModels.length,
+	);
 
-  const searchDisplay =
-    state.modelSearchQuery.length > 0
-      ? Text({
-          content: `Search: ${state.modelSearchQuery}_`,
-          fg: theme.primary,
-        })
-      : Text({
-          content: "Type to search...",
-          fg: theme.textMuted,
-        });
+	const searchDisplay =
+		state.modelSearchQuery.length > 0
+			? Text({
+					content: `Search: ${state.modelSearchQuery}_`,
+					fg: theme.primary,
+				})
+			: Text({
+					content: "Type to search...",
+					fg: theme.textMuted,
+				});
 
-  const listWidth = 56;
-  const viewportHeight = 12;
-  const totalItems = searchFilteredModels.length;
+	const listWidth = 56;
+	const viewportHeight = 12;
+	const totalItems = searchFilteredModels.length;
 
-  // Adjust scroll offset so the selected item is visible
-  if (state.modelSelectorIndex < state.modelSelectorScrollOffset) {
-    state.modelSelectorScrollOffset = state.modelSelectorIndex;
-  } else if (
-    state.modelSelectorIndex >=
-    state.modelSelectorScrollOffset + viewportHeight
-  ) {
-    state.modelSelectorScrollOffset =
-      state.modelSelectorIndex - viewportHeight + 1;
-  }
+	// Adjust scroll offset so the selected item is visible
+	if (state.modelSelectorIndex < state.modelSelectorScrollOffset) {
+		state.modelSelectorScrollOffset = state.modelSelectorIndex;
+	} else if (
+		state.modelSelectorIndex >=
+		state.modelSelectorScrollOffset + viewportHeight
+	) {
+		state.modelSelectorScrollOffset =
+			state.modelSelectorIndex - viewportHeight + 1;
+	}
 
-  const items: any[] = [];
-  const startIdx = state.modelSelectorScrollOffset;
-  const endIdx = Math.min(startIdx + viewportHeight, totalItems);
+	const items: ReturnType<typeof Box>[] = [];
+	const startIdx = state.modelSelectorScrollOffset;
+	const endIdx = Math.min(startIdx + viewportHeight, totalItems);
 
-  for (let i = startIdx; i < endIdx; i++) {
-    const model = searchFilteredModels[i];
-    const isSelected = i === state.modelSelectorIndex;
-    const prefix = isSelected ? "\u25b6 " : "  ";
+	for (let i = startIdx; i < endIdx; i++) {
+		const model = searchFilteredModels[i];
+		const isSelected = i === state.modelSelectorIndex;
+		const prefix = isSelected ? "\u25b6 " : "  ";
 
-    items.push(
-      Box(
-        {
-          flexDirection: "row",
-          paddingX: 1,
-          backgroundColor: isSelected
-            ? theme.selectedBg
-            : theme.backgroundPanel,
-          width: listWidth,
-        },
-        Text({
-          content: `${prefix}${model.name}`,
-          fg: isSelected ? theme.selectedText : theme.text,
-        }),
-      ),
-    );
-  }
+		items.push(
+			Box(
+				{
+					flexDirection: "row",
+					paddingX: 1,
+					backgroundColor: isSelected
+						? theme.selectedBg
+						: theme.backgroundPanel,
+					width: listWidth,
+				},
+				Text({
+					content: `${prefix}${model.name}`,
+					fg: isSelected ? theme.selectedText : theme.text,
+				}),
+			),
+		);
+	}
 
-  if (totalItems === 0) {
-    items.push(
-      Box(
-        {
-          flexDirection: "row",
-          paddingX: 1,
-          backgroundColor: theme.backgroundPanel,
-          width: listWidth,
-        },
-        Text({
-          content: "  No matching models",
-          fg: theme.textMuted,
-        }),
-      ),
-    );
-  }
+	if (totalItems === 0) {
+		items.push(
+			Box(
+				{
+					flexDirection: "row",
+					paddingX: 1,
+					backgroundColor: theme.backgroundPanel,
+					width: listWidth,
+				},
+				Text({
+					content: "  No matching models",
+					fg: theme.textMuted,
+				}),
+			),
+		);
+	}
 
-  return {
-    element: Box(
-      { flexDirection: "column", gap: 0, width: listWidth },
-      Text({
-        content: " Select a model to add:",
-        fg: theme.primary,
-      }),
-      searchDisplay,
-      ...items,
-    ),
-    helpText: "[Esc] cancel  [Enter] select  [Type] search  [Backspace] clear",
-  };
+	return {
+		element: Box(
+			{ flexDirection: "column", gap: 0, width: listWidth },
+			Text({
+				content: " Select a model to add:",
+				fg: theme.primary,
+			}),
+			searchDisplay,
+			...items,
+		),
+		helpText: "[Esc] cancel  [Enter] select  [Type] search  [Backspace] clear",
+	};
 }
