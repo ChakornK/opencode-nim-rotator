@@ -26,26 +26,41 @@ async function install() {
 
 			config.plugin = config.plugin || [];
 			const SERVER_SPEC = "@hallaxius/opencode-nim-rotator/server";
-			const hasServer = config.plugin.some((p) => {
-				if (typeof p === "string") return p === SERVER_SPEC;
-				if (Array.isArray(p)) return p[0] === SERVER_SPEC;
-				return false;
-			});
+			const TUI_SPEC = "@hallaxius/opencode-nim-rotator/tui";
 
-			if (!hasServer) {
-				config.plugin.push(SERVER_SPEC);
+			const hasSpec = (spec) =>
+				config.plugin.some((p) => {
+					if (typeof p === "string") return p === spec;
+					if (Array.isArray(p)) return p[0] === spec;
+					return false;
+				});
+
+			const needsServer = !hasSpec(SERVER_SPEC);
+			const needsTui = !hasSpec(TUI_SPEC);
+
+			if (needsServer || needsTui) {
+				if (needsServer) config.plugin.push(SERVER_SPEC);
+				if (needsTui) config.plugin.push(TUI_SPEC);
 				await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, {
 					mode: 0o600,
 				});
-				console.log(`Added ${SERVER_SPEC} to opencode.json plugin list`);
+				const added = [];
+				if (needsServer) added.push(SERVER_SPEC);
+				if (needsTui) added.push(TUI_SPEC);
+				console.log(`Added to opencode.json plugin list: ${added.join(", ")}`);
 			} else {
-				console.log("Plugin already in opencode.json - skipping");
+				console.log("Plugins already in opencode.json - skipping");
 			}
 		} catch (err) {
 			console.warn("Could not update opencode.json:", err);
 		}
 	} else {
-		const config = { plugin: ["@hallaxius/opencode-nim-rotator/server"] };
+		const config = {
+				plugin: [
+					"@hallaxius/opencode-nim-rotator/server",
+					"@hallaxius/opencode-nim-rotator/tui",
+				],
+			};
 		await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, {
 			mode: 0o600,
 		});

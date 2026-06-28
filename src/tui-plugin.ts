@@ -519,5 +519,6 @@ const NimRotatorTuiPlugin: TuiPlugin = async (api) => {
 	});
 };
 
+export const tui = NimRotatorTuiPlugin;
 export default NimRotatorTuiPlugin;
 export { NimRotatorTuiPlugin };

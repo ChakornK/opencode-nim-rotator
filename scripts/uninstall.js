@@ -32,6 +32,7 @@ async function uninstall() {
 				const SPECS = [
 					"@hallaxius/opencode-nim-rotator",
 					"@hallaxius/opencode-nim-rotator/server",
+					"@hallaxius/opencode-nim-rotator/tui",
 				];
 				config.plugin = config.plugin.filter((p) => {
 					const spec = typeof p === "string" ? p : Array.isArray(p) ? p[0] : "";

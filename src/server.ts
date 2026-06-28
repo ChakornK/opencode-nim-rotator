@@ -1,3 +1,3 @@
 import { NvidiaNimKeyRotator } from "./index.js";
-export default NvidiaNimKeyRotator;
+export const server = NvidiaNimKeyRotator;
 export { NvidiaNimKeyRotator };
