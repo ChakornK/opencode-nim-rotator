@@ -1,6 +1,6 @@
 import type { KeyStore } from "./types.js";
 
-const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com";
+const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const PROXY_TIMEOUT_MS = 120_000; // 2 minutes
 
 export interface ProxyState {
@@ -22,58 +22,58 @@ export function startProxy(options: ProxyOptions) {
 
   const server = Bun.serve({
     port: options.port,
-    async fetch(request) {
-      const url = new URL(request.url);
-      const sessionID = request.headers.get("x-nim-rotator-session-id");
+    async fetch(req) {
+      const url = new URL(req.url);
+      const sessionID = req.headers.get("x-nim-rotator-session-id");
 
       try {
-        // Read the request body to potentially modify it
-        let body: string | null = null;
-        let parsedBody: Record<string, unknown> | undefined;
-        if (request.body) {
-          const cloned = request.clone();
-          body = await cloned.text();
+        // Read and potentially modify the request body
+        let bodyText: string | undefined;
+        let targetModel: string | undefined;
+
+        if (req.body) {
+          bodyText = await req.text();
           try {
-            parsedBody = JSON.parse(body);
-          } catch {
-            // Not JSON, pass through as-is
-          }
-        }
+            const parsedBody = JSON.parse(bodyText) as Record<string, unknown>;
+            targetModel = parsedBody.model as string | undefined;
 
-        // Determine target model and API key
-        let targetModel = parsedBody?.model as string | undefined;
-
-        // Check if this session has a fallback model configured
-        if (sessionID) {
-          const state = sessions.get(sessionID);
-          if (
-            state?.activeChainModelId &&
-            state.activeChainModelId !== targetModel
-          ) {
-            console.debug(
-              `[nim-rotator] proxy: rewriting model for ${sessionID}: ${targetModel} → ${state.activeChainModelId}`,
-            );
-            targetModel = state.activeChainModelId;
-            if (parsedBody) {
-              parsedBody.model = targetModel;
-              body = JSON.stringify(parsedBody);
+            // Check if this session has a fallback model configured
+            if (sessionID) {
+              const state = sessions.get(sessionID);
+              if (
+                state?.activeChainModelId &&
+                state.activeChainModelId !== targetModel
+              ) {
+                console.debug(
+                  `[nim-rotator] proxy: rewriting model for ${sessionID}: ${targetModel} → ${state.activeChainModelId}`,
+                );
+                parsedBody.model = state.activeChainModelId;
+                targetModel = state.activeChainModelId;
+                bodyText = JSON.stringify(parsedBody);
+              }
             }
+          } catch {
+            // Not JSON, use original body as-is
           }
         }
 
-        // Build target URL - ensure /v1 prefix is present
-        const targetPath = url.pathname.startsWith("/v1/")
-          ? url.pathname
-          : `/v1${url.pathname}`;
-        const targetUrl = new URL(targetPath + url.search, targetBaseUrl);
+        // Strip /v1 prefix from incoming path to avoid duplication
+        // when appending to targetBaseUrl which already includes /v1
+        let upstreamPath = url.pathname;
+        if (upstreamPath === "/v1") upstreamPath = "";
+        else if (upstreamPath.startsWith("/v1/"))
+          upstreamPath = upstreamPath.replace(/^\/v1/, "");
+
+        const upstream = `${targetBaseUrl}${upstreamPath}${url.search}`;
 
         // Forward the request, preserving the Authorization header set by chat.headers
-        const headers = new Headers(request.headers);
-        // Remove our custom header before forwarding
+        const headers = new Headers(req.headers);
+        // Remove our custom header and host before forwarding
         headers.delete("x-nim-rotator-session-id");
+        headers.delete("host");
 
         console.debug(
-          `[nim-rotator] proxy: forwarding ${request.method} ${url.pathname} to ${targetUrl.toString()}`,
+          `[nim-rotator] proxy: forwarding ${req.method} ${url.pathname} to ${upstream}`,
         );
 
         const controller = new AbortController();
@@ -86,10 +86,10 @@ export function startProxy(options: ProxyOptions) {
 
         let response: Response;
         try {
-          response = await fetch(targetUrl.toString(), {
-            method: request.method,
+          response = await fetch(upstream, {
+            method: req.method,
             headers,
-            body: body ?? undefined,
+            body: bodyText,
             signal: controller.signal,
           });
         } finally {
@@ -97,7 +97,7 @@ export function startProxy(options: ProxyOptions) {
         }
 
         console.debug(
-          `[nim-rotator] proxy: received ${response.status} from ${targetUrl.toString()}`,
+          `[nim-rotator] proxy: received ${response.status} from ${upstream}`,
         );
 
         // Check for rate limit and notify
