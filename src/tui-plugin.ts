@@ -514,7 +514,7 @@ const NimRotatorTuiPlugin: TuiPlugin = async (api) => {
 };
 
 const tuiPluginModule: TuiPluginModule = {
-  id: "@hallaxius/opencode-nim-rotator",
+  id: "nim-rotator-tui",
   tui: NimRotatorTuiPlugin,
 };
 
