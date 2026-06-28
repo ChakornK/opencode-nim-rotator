@@ -65,6 +65,64 @@ const ERROR_DEDUP_WINDOW_MS = 500;
 const SESSIONS_MAX_SIZE = 500;
 const SESSIONS_MAX_AGE_MS = 10 * 60 * 1000;
 
+// Retry backoff constants — copied from Opencode's retry mechanism
+const RETRY_INITIAL_DELAY = 2000;
+const RETRY_BACKOFF_FACTOR = 2;
+const RETRY_MAX_DELAY_NO_HEADERS = 30_000;
+const RETRY_MAX_DELAY = 2_147_483_647;
+
+function capDelay(ms: number): number {
+  return Math.min(ms, RETRY_MAX_DELAY);
+}
+
+function calculateRetryDelay(attempt: number, error?: unknown): number {
+  // attempt is 1-based
+  let retryAfterMs: number | undefined;
+
+  if (error && typeof error === "object") {
+    const rec = error as Record<string, unknown>;
+    const data = rec.data as Record<string, unknown> | undefined;
+
+    // Check for retry-after headers in the error
+    const headers = data?.responseHeaders as Record<string, string> | undefined;
+    if (headers) {
+      const retryAfterMsHeader = headers["retry-after-ms"];
+      if (retryAfterMsHeader) {
+        const parsed = Number.parseFloat(retryAfterMsHeader);
+        if (!Number.isNaN(parsed)) {
+          retryAfterMs = parsed;
+        }
+      }
+
+      if (retryAfterMs === undefined) {
+        const retryAfter = headers["retry-after"];
+        if (retryAfter) {
+          const parsedSeconds = Number.parseFloat(retryAfter);
+          if (!Number.isNaN(parsedSeconds)) {
+            retryAfterMs = Math.ceil(parsedSeconds * 1000);
+          } else {
+            const parsedDate = Date.parse(retryAfter) - Date.now();
+            if (!Number.isNaN(parsedDate) && parsedDate > 0) {
+              retryAfterMs = Math.ceil(parsedDate);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (retryAfterMs !== undefined) {
+    return capDelay(retryAfterMs);
+  }
+
+  return capDelay(
+    Math.min(
+      RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1),
+      RETRY_MAX_DELAY_NO_HEADERS,
+    ),
+  );
+}
+
 const subAgentCache = new Map<string, number>();
 
 async function isSubagentSessionCached(
@@ -243,6 +301,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       lastFailedModelId: undefined,
       lastErrorHandledAt: 0,
       createdAt: Date.now(),
+      retryAttempt: 0,
     };
     sessions.set(sessionID, next);
     return next;
@@ -292,6 +351,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     sessionID: string,
     state: SessionState,
     reason?: string,
+    error?: unknown,
   ): Promise<boolean> => {
     const chain = store.fallbackChain;
     if (chain.length < 2) return false;
@@ -302,6 +362,21 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
 
     const doRetry = async (): Promise<boolean> => {
+      state.retryAttempt++;
+      const attempt = state.retryAttempt;
+
+      // Calculate delay with exponential backoff
+      const delay = calculateRetryDelay(attempt, error);
+
+      // Show notification before delay so user doesn't think it's frozen
+      if (delay > 0) {
+        await showToast(
+          "info",
+          `Retrying with fallback model in ${Math.ceil(delay / 1000)}s...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+
       let nextIndex = (state.attemptIndex + 1) % chain.length;
       if (
         state.lastFailedModelId &&
@@ -479,27 +554,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
-    // For subagents: don't abort — update model index for next turn
-    if (await isSubagentSessionCached(client, sessionID)) {
-      const chain = store.fallbackChain;
-      if (chain.length >= 2) {
-        const nextIndex = (state.attemptIndex + 1) % chain.length;
-        state.attemptIndex = nextIndex;
-        state.activeChainModelId = chain[nextIndex]?.id;
-      }
-      proxySessions.set(sessionID, {
-        activeChainModelId: state.activeChainModelId,
-        currentModelId: state.currentModelId,
-      });
-      await showToast(
-        "info",
-        `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
-      );
-      return;
-    }
-
     const reason = describeError(error, state, store.maxRateLimitFailures);
-    const triggered = await triggerRetry(sessionID, state, reason);
+    const triggered = await triggerRetry(sessionID, state, reason, error);
     if (!triggered) {
       console.debug(
         `[nim-rotator] triggerRetry returned false for ${sessionID}`,
@@ -533,25 +589,6 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
-
-    // For subagents: don't abort — update model index for next turn
-    if (await isSubagentSessionCached(client, sessionID)) {
-      const chain = store.fallbackChain;
-      if (chain.length >= 2) {
-        const nextIndex = (state.attemptIndex + 1) % chain.length;
-        state.attemptIndex = nextIndex;
-        state.activeChainModelId = chain[nextIndex]?.id;
-      }
-      proxySessions.set(sessionID, {
-        activeChainModelId: state.activeChainModelId,
-        currentModelId: state.currentModelId,
-      });
-      await showToast(
-        "info",
-        `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
-      );
-      return;
-    }
 
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
     const triggered2 = await triggerRetry(sessionID, state, reason);
@@ -607,27 +644,8 @@ export const NvidiaNimKeyRotator: Plugin = async (
     state.rateLimitCount++;
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
-    // For subagents: don't abort — update model index for next turn
-    if (await isSubagentSessionCached(client, sessionID)) {
-      const chain = store.fallbackChain;
-      if (chain.length >= 2) {
-        const nextIndex = (state.attemptIndex + 1) % chain.length;
-        state.attemptIndex = nextIndex;
-        state.activeChainModelId = chain[nextIndex]?.id;
-      }
-      proxySessions.set(sessionID, {
-        activeChainModelId: state.activeChainModelId,
-        currentModelId: state.currentModelId,
-      });
-      await showToast(
-        "info",
-        `Subagent rate limited — next turn will use ${state.activeChainModelId ?? "fallback model"}`,
-      );
-      return;
-    }
-
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
-    const triggered3 = await triggerRetry(sessionID, state, reason);
+    const triggered3 = await triggerRetry(sessionID, state, reason, error);
     if (!triggered3) {
       console.debug(
         `[nim-rotator] triggerRetry returned false for ${sessionID} (step failed)`,
@@ -796,6 +814,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
           state.rateLimitCount = 0;
           state.pendingRetryIndex = undefined;
           state.lastFailedModelId = undefined;
+          state.retryAttempt = 0;
           cleanupSession(sessionID);
           return;
         }

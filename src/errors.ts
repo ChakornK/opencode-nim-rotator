@@ -12,6 +12,7 @@ export interface SessionState {
   lastErrorHandledAt: number;
   createdAt: number;
   retryPromise?: Promise<boolean>;
+  retryAttempt: number;
 }
 
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
@@ -121,35 +122,12 @@ export function shouldRetryForError(
   if (!error || typeof error !== "object") return false;
   const rec = error as Record<string, unknown>;
 
-  if (rec.name === "MessageAbortedError") {
-    const msg =
-      typeof (rec.data as Record<string, unknown>)?.message === "string"
-        ? ((rec.data as Record<string, unknown>).message as string)
-        : "";
-    return /time\s*out|timed\s*out|timeout/i.test(msg);
-  }
+  // If Opencode already classifies this as retryable, let Opencode handle it
+  if (rec.retryable === true) return false;
+  const data = rec.data as Record<string, unknown> | undefined;
+  if (data?.retryable === true) return false;
+  if (data?.isRetryable === true) return false;
 
-  if (rec.name === "APIError") {
-    const data = rec.data as Record<string, unknown> | undefined;
-    if (data?.isRetryable) return true;
-    const statusCode = extractStatus(error);
-    if (
-      typeof statusCode === "number" &&
-      RETRYABLE_STATUS_CODES.has(statusCode)
-    ) {
-      return true;
-    }
-    return is429Error(error);
-  }
-
-  if (rec.name === "ProviderAuthError") return false;
-
-  const statusCode = extractStatus(error);
-  if (
-    typeof statusCode === "number" &&
-    RETRYABLE_STATUS_CODES.has(statusCode)
-  ) {
-    return true;
-  }
-  return is429Error(error);
+  // All other errors are retryable by the plugin
+  return true;
 }

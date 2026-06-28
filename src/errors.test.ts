@@ -23,6 +23,7 @@ function makeState(
     lastFailedModelId: undefined,
     lastErrorHandledAt: 0,
     createdAt: 0,
+    retryAttempt: 0,
     ...overrides,
   };
 }
@@ -99,9 +100,18 @@ describe("shouldRetryForError", () => {
     expect(shouldRetryForError(error, makeState())).toBe(true);
   });
 
-  it("retries on APIError with isRetryable", () => {
+  it("lets Opencode handle APIError with isRetryable", () => {
     const error = { name: "APIError", data: { isRetryable: true } };
-    expect(shouldRetryForError(error, makeState())).toBe(true);
+    expect(shouldRetryForError(error, makeState())).toBe(false);
+  });
+
+  it("lets Opencode handle error with retryable flag", () => {
+    const error = {
+      name: "APIError",
+      data: { statusCode: 429 },
+      retryable: true,
+    };
+    expect(shouldRetryForError(error, makeState())).toBe(false);
   });
 
   it("retries on APIError with retryable status code", () => {
@@ -140,20 +150,22 @@ describe("shouldRetryForError", () => {
     expect(shouldRetryForError({ statusCode: 504 }, makeState())).toBe(true);
   });
 
-  it("does not retry ProviderAuthError", () => {
+  it("retries on ProviderAuthError (all errors are retryable unless Opencode handles them)", () => {
     expect(
       shouldRetryForError({ name: "ProviderAuthError" }, makeState()),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("does not retry non-retryable errors", () => {
+  it("retries on all errors (all error codes are retryable unless Opencode handles them)", () => {
     expect(
       shouldRetryForError(
         { name: "APIError", data: { statusCode: 400 } },
         makeState(),
       ),
-    ).toBe(false);
-    expect(shouldRetryForError({ statusCode: 404 }, makeState())).toBe(false);
+    ).toBe(true);
+    expect(shouldRetryForError({ statusCode: 404 }, makeState())).toBe(true);
+    expect(shouldRetryForError({ statusCode: 500 }, makeState())).toBe(true);
+    expect(shouldRetryForError({ statusCode: 503 }, makeState())).toBe(true);
   });
 });
 
