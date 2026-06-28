@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"module": "CommonJS",
+		"moduleResolution": "bundler",
+		"outDir": "./dist/cjs"
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["node_modules", "dist", "bin", "scripts", "src/bin.ts"]
+}

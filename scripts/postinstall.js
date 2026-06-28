@@ -33,7 +33,7 @@ async function install() {
 			});
 
 			if (!hasServer) {
-				config.plugin.unshift(SERVER_SPEC);
+				config.plugin.push(SERVER_SPEC);
 				await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, {
 					mode: 0o600,
 				});

@@ -557,6 +557,10 @@ const NvidiaNimKeyRotator: Plugin = async (
 			],
 		},
 		"chat.headers": async (_input, _output) => {
+			const providerInfo = (
+				_input.provider as { info?: { id?: string } } | undefined
+			)?.info;
+			if (providerInfo?.id && providerInfo.id !== PROVIDER_ID) return;
 			reloadFromDisk();
 			const prevKeyId = store.lastUsedKeyId;
 			const modelIdForRotation = _input.model?.id;
