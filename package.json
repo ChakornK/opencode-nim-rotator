@@ -1,6 +1,6 @@
 {
   "name": "@hallaxius/opencode-nim-rotator",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "An OpenCode plugin for managing and rotating multiple NVIDIA NIM API keys",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -46,7 +46,7 @@
   "bugs": {
     "url": "https://github.com/hallaxius/opencode-nim-rotator/issues"
   },
-      "homepage": "https://github.com/hallaxius/opencode-nim-rotator#readme",
+  "homepage": "https://github.com/hallaxius/opencode-nim-rotator#readme",
   "author": "ChakornK",
   "license": "MIT",
   "files": [
