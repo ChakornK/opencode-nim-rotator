@@ -1,6 +1,6 @@
 import type { KeyStore } from "./types.js";
 
-const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
+const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com";
 const PROXY_TIMEOUT_MS = 120_000; // 2 minutes
 
 export interface ProxyState {
@@ -61,8 +61,11 @@ export function startProxy(options: ProxyOptions) {
           }
         }
 
-        // Build target URL
-        const targetUrl = new URL(url.pathname + url.search, targetBaseUrl);
+        // Build target URL - ensure /v1 prefix is present
+        const targetPath = url.pathname.startsWith("/v1/")
+          ? url.pathname
+          : `/v1${url.pathname}`;
+        const targetUrl = new URL(targetPath + url.search, targetBaseUrl);
 
         // Forward the request, preserving the Authorization header set by chat.headers
         const headers = new Headers(request.headers);
