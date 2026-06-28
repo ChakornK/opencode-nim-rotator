@@ -36,7 +36,9 @@ function createPluginInput(client: PluginInput["client"]): PluginInput {
 describe("NvidiaNimKeyRotator", () => {
   it("should export the plugin", async () => {
     const client = createMockClient();
-    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {});
+    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {
+      proxyPort: 0,
+    });
     expect(plugin).toBeDefined();
     expect(plugin.auth).toBeDefined();
     expect(plugin["chat.headers"]).toBeDefined();
@@ -55,7 +57,9 @@ describe("NvidiaNimKeyRotator", () => {
       },
     });
 
-    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {});
+    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {
+      proxyPort: 0,
+    });
     const event = {
       type: "session.error" as const,
       properties: {
@@ -74,11 +78,13 @@ describe("NvidiaNimKeyRotator", () => {
       sessionGet: () => Promise.resolve({ data: { parentID: undefined } }),
     });
 
-    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {});
+    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {
+      proxyPort: 0,
+    });
     const event = {
       type: "session.error" as const,
       properties: {
-        sessionID: "primary-123",
+        sessionID: "subagent-123",
         error: { name: "APIError", data: { statusCode: 429 } },
       },
     };
@@ -106,6 +112,7 @@ describe("NvidiaNimKeyRotator", () => {
     const client = createMockClient();
     const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {
       storePath: "/tmp/test-nim-rotator-keys.json",
+      proxyPort: 0,
     });
 
     // The fallback chain is empty by default, so chat.message should be a no-op
@@ -134,7 +141,9 @@ describe("NvidiaNimKeyRotator", () => {
       sessionGet: () => Promise.resolve({ data: { parentID: "parent-123" } }),
     });
 
-    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {});
+    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {
+      proxyPort: 0,
+    });
     const event = {
       type: "session.error" as const,
       properties: {
@@ -170,7 +179,9 @@ describe("NvidiaNimKeyRotator", () => {
 
   it("should handle session.status idle event and cleanup state", async () => {
     const client = createMockClient();
-    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {});
+    const plugin = await NvidiaNimKeyRotator(createPluginInput(client), {
+      proxyPort: 0,
+    });
 
     // Seed the session state
     await plugin["chat.message"]!(

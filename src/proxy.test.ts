@@ -175,4 +175,36 @@ describe("startProxy", () => {
     expect(rateLimitCalls[0].sessionID).toBe("test-session-4");
     expect(rateLimitCalls[0].modelId).toBe("fallback-model-id");
   });
+
+  it("should return 502 when target server is unreachable", async () => {
+    // Start a proxy that points to a non-existent server
+    const badProxy = startProxy({
+      port: 0,
+      store: getDefaultStore(),
+      sessions: new Map(),
+      targetUrl: "http://localhost:65432", // Non-existent server on valid port
+    });
+
+    try {
+      const response = await fetch(
+        `http://localhost:${badProxy.port}/v1/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "test-model",
+            messages: [{ role: "user", content: "hello" }],
+          }),
+        },
+      );
+
+      expect(response.status).toBe(502);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toBe("Proxy error");
+    } finally {
+      badProxy.server.stop(true);
+    }
+  });
 });

@@ -637,10 +637,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const hooks: Hooks = {
     config: async (cfg: any) => {
-      if (!cfg.providers) cfg.providers = {};
-      if (!cfg.providers.nvidia) cfg.providers.nvidia = {};
-      if (!cfg.providers.nvidia.options) cfg.providers.nvidia.options = {};
-      cfg.providers.nvidia.options.baseURL = `http://localhost:${actualProxyPort}`;
+      if (!cfg.provider) cfg.provider = {};
+      if (!cfg.provider.nvidia) cfg.provider.nvidia = {};
+      if (!cfg.provider.nvidia.options) cfg.provider.nvidia.options = {};
+      cfg.provider.nvidia.options.baseURL = `http://localhost:${actualProxyPort}`;
     },
     auth: {
       provider: PROVIDER_ID,
