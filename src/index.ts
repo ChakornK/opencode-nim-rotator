@@ -546,6 +546,12 @@ const NvidiaNimKeyRotator: Plugin = async (
 							return { type: "failed" };
 						}
 
+						const existing = store.keys.find((k) => k.key === key);
+						if (!existing) {
+							addKey(store, `connected-${store.keys.length + 1}`, key);
+							safeSaveStore();
+						}
+
 						return {
 							type: "success",
 							key,
@@ -696,5 +702,6 @@ const NvidiaNimKeyRotator: Plugin = async (
 	return hooks;
 };
 
+export const id = "nim-rotator";
 export const server = NvidiaNimKeyRotator;
 export { NvidiaNimKeyRotator };
