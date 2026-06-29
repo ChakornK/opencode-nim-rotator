@@ -44,9 +44,6 @@ export function startProxy(options: ProxyOptions) {
                 state?.activeChainModelId &&
                 state.activeChainModelId !== targetModel
               ) {
-                console.debug(
-                  `[nim-rotator] proxy: rewriting model for ${sessionID}: ${targetModel} → ${state.activeChainModelId}`,
-                );
                 parsedBody.model = state.activeChainModelId;
                 targetModel = state.activeChainModelId;
                 bodyText = JSON.stringify(parsedBody);
@@ -72,17 +69,8 @@ export function startProxy(options: ProxyOptions) {
         headers.delete("x-nim-rotator-session-id");
         headers.delete("host");
 
-        console.debug(
-          `[nim-rotator] proxy: forwarding ${req.method} ${url.pathname} to ${upstream}`,
-        );
-
         const controller = new AbortController();
-        const timeout = setTimeout(() => {
-          console.error(
-            `[nim-rotator] proxy: timeout after ${PROXY_TIMEOUT_MS}ms, aborting`,
-          );
-          controller.abort();
-        }, PROXY_TIMEOUT_MS);
+        const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
 
         let response: Response;
         try {
@@ -96,10 +84,6 @@ export function startProxy(options: ProxyOptions) {
           clearTimeout(timeout);
         }
 
-        console.debug(
-          `[nim-rotator] proxy: received ${response.status} from ${upstream}`,
-        );
-
         // Check for rate limit and notify
         if (response.status === 429 && sessionID && targetModel) {
           onRateLimit?.(sessionID, targetModel);
@@ -107,10 +91,6 @@ export function startProxy(options: ProxyOptions) {
 
         return response;
       } catch (error) {
-        console.error(
-          `[nim-rotator] proxy: error handling request to ${url.pathname}:`,
-          error,
-        );
         return new Response(
           JSON.stringify({
             error: "Proxy error",
@@ -125,8 +105,5 @@ export function startProxy(options: ProxyOptions) {
     },
   });
 
-  console.debug(
-    `[nim-rotator] proxy listening on http://localhost:${server.port}`,
-  );
   return { server, port: server.port ?? options.port };
 }
