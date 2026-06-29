@@ -21,6 +21,8 @@ const PROVIDER_ID = "nvidia";
 const NIM_BASE_URL = "https://integrate.api.nvidia.com";
 const VALID_STRATEGIES = ["round-robin", "least-failures"] as const;
 
+import { logDebug } from "./logger.js";
+
 function isValidStrategy(
   val: unknown,
 ): val is KeyStoreConfig["rotationStrategy"] {
@@ -48,9 +50,8 @@ async function isSubagentSession(
     if (!data || typeof data !== "object") return false;
     return (data as Record<string, unknown>)?.parentID !== undefined;
   } catch (err) {
-    console.debug(
-      `[nim-rotator] isSubagentSession failed for ${sessionID}:`,
-      err,
+    logDebug(
+      `[nim-rotator] isSubagentSession failed for ${sessionID}: ${err instanceof Error ? err.message : String(err)}`,
     );
     return false;
   }
@@ -205,7 +206,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
     try {
       fresh = loadStore(config);
     } catch (err) {
-      console.debug("[nim-rotator] Failed to reload store from disk:", err);
+      logDebug(
+        `[nim-rotator] Failed to reload store from disk: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return;
     }
     if (fresh === null) return;
@@ -225,7 +228,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
           ? fresh.maxRateLimitFailures
           : getDefaultStore().maxRateLimitFailures;
     } catch (err) {
-      console.debug("[nim-rotator] Failed to apply reloaded store:", err);
+      logDebug(
+        `[nim-rotator] Failed to apply reloaded store: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -259,7 +264,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
         body: { title: "Model Fallback", message, variant },
       });
     } catch (err) {
-      console.debug("[nim-rotator] showToast failed:", err);
+      logDebug(
+        `[nim-rotator] showToast failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -336,9 +343,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
     }
-    console.debug(
-      `[nim-rotator] waitForSessionIdle timed out for ${sessionID}`,
-    );
+    logDebug(`[nim-rotator] waitForSessionIdle timed out for ${sessionID}`);
     return false;
   };
 
@@ -387,7 +392,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
         const source = chain[state.attemptIndex];
         const target = chain[nextIndex];
         if (!source || !target) {
-          console.log(
+          logDebug(
             `[nim-rotator] triggerRetry: source or target is undefined. sourceIndex=${state.attemptIndex}, nextIndex=${nextIndex}, chainLength=${chain.length}`,
           );
           return false;
@@ -406,7 +411,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
             ? messagesResult.data
             : messagesResult;
         if (!Array.isArray(entries)) {
-          console.log(
+          logDebug(
             `[nim-rotator] triggerRetry: entries is not an array. type=${typeof entries}`,
           );
           return false;
@@ -416,7 +421,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
           (entry) => (entry?.info as Record<string, unknown>)?.role === "user",
         );
         if (userMessages.length === 0) {
-          console.log(`[nim-rotator] triggerRetry: no user messages found`);
+          logDebug(`[nim-rotator] triggerRetry: no user messages found`);
           return false;
         }
 
@@ -431,7 +436,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
           state.lastUserMessageID &&
           (lastUserInfo?.id as string) !== state.lastUserMessageID
         ) {
-          console.log(
+          logDebug(
             `[nim-rotator] triggerRetry: message ID mismatch. expected=${state.lastUserMessageID}, actual=${lastUserInfo?.id}`,
           );
           return false;
@@ -462,22 +467,21 @@ export const NvidiaNimKeyRotator: Plugin = async (
         try {
           await client.session.abort({ path: { id: sessionID } });
         } catch (abortErr) {
-          console.debug(
-            `[nim-rotator] abort failed for ${sessionID}:`,
-            abortErr,
+          logDebug(
+            `[nim-rotator] abort failed for ${sessionID}: ${abortErr instanceof Error ? abortErr.message : String(abortErr)}`,
           );
         }
 
         const idle = await waitForSessionIdle(sessionID);
         if (!idle) {
-          console.log(
+          logDebug(
             `[nim-rotator] triggerRetry: session ${sessionID} did not go idle after abort`,
           );
           state.pendingRetryIndex = undefined;
           return false;
         }
 
-        console.log(
+        logDebug(
           `[nim-rotator] triggerRetry: sending prompt with model ${target.id} for session ${sessionID}`,
         );
         await client.session.prompt({
@@ -493,15 +497,13 @@ export const NvidiaNimKeyRotator: Plugin = async (
           },
         });
 
-        console.log(
+        logDebug(
           `[nim-rotator] triggerRetry: successfully triggered fallback for session ${sessionID}`,
         );
         return true;
       } catch (err) {
-        console.debug(
-          `[nim-rotator] triggerRetry failed for ${sessionID}:`,
-          err,
-          51,
+        logDebug(
+          `[nim-rotator] triggerRetry failed for ${sessionID}: ${err instanceof Error ? err.message : String(err)}`,
         );
         state.pendingRetryIndex = undefined;
         return false;
@@ -523,7 +525,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const error = props?.error;
     const sessionID = props?.sessionID as string | undefined;
 
-    console.log(
+    logDebug(
       `[nim-rotator] handleSessionError called: sessionID=${sessionID ?? "none"}, is429=${is429Error(error)}, errorName=${(error as any)?.name ?? "unknown"}`,
     );
 
@@ -540,13 +542,13 @@ export const NvidiaNimKeyRotator: Plugin = async (
     }
 
     if (!sessionID) {
-      console.log(`[nim-rotator] handleSessionError: no sessionID, returning`);
+      logDebug(`[nim-rotator] handleSessionError: no sessionID, returning`);
       return;
     }
 
     const state = sessions.get(sessionID);
     if (!state) {
-      console.log(
+      logDebug(
         `[nim-rotator] handleSessionError: no state for sessionID=${sessionID}, returning`,
       );
       return;
@@ -573,7 +575,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     } else {
       state.rateLimitCount++;
     }
-    console.log(
+    logDebug(
       `[nim-rotator] handleSessionError: rateLimitCount=${state.rateLimitCount}, threshold=${store.maxRateLimitFailures}`,
     );
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
@@ -587,9 +589,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const reason = describeError(error, state, store.maxRateLimitFailures);
     const triggered = await triggerRetry(sessionID, state, reason, error);
     if (!triggered) {
-      console.debug(
-        `[nim-rotator] triggerRetry returned false for ${sessionID}`,
-      );
+      logDebug(`[nim-rotator] triggerRetry returned false for ${sessionID}`);
     }
   };
 
@@ -622,7 +622,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
     const triggered2 = await triggerRetry(sessionID, state, reason);
     if (!triggered2) {
-      console.debug(
+      logDebug(
         `[nim-rotator] triggerRetry returned false for ${sessionID} (status retry)`,
       );
     }
@@ -674,7 +674,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const reason = `Rate limited (429) — ${state.rateLimitCount}/${store.maxRateLimitFailures} consecutive`;
     const triggered3 = await triggerRetry(sessionID, state, reason, error);
     if (!triggered3) {
-      console.debug(
+      logDebug(
         `[nim-rotator] triggerRetry returned false for ${sessionID} (step failed)`,
       );
     }
@@ -703,7 +703,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
               });
               if (!res.ok) return { type: "failed" };
             } catch (err) {
-              console.debug("[nim-rotator] authorize fetch failed:", err);
+              logDebug(
+                `[nim-rotator] authorize fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
               return { type: "failed" };
             }
 

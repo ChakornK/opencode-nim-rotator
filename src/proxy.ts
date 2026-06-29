@@ -6,6 +6,8 @@ import {
   recordModelRateLimit,
 } from "./storage.js";
 
+import { logDebug } from "./logger.js";
+
 const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const PROXY_TIMEOUT_MS = 120_000; // 2 minutes
 
@@ -33,7 +35,7 @@ export function startProxy(options: ProxyOptions) {
       const url = new URL(req.url);
       const sessionID = req.headers.get("x-nim-rotator-session-id");
 
-      console.log(
+      logDebug(
         `[nim-rotator] Proxy received request: ${req.method} ${url.pathname} sessionID=${sessionID ?? "none"}`,
       );
 
@@ -88,9 +90,8 @@ export function startProxy(options: ProxyOptions) {
           try {
             saveStore(store, config);
           } catch (err) {
-            console.debug(
-              "[nim-rotator] Failed to save store after key rotation:",
-              err,
+            logDebug(
+              `[nim-rotator] Failed to save store after key rotation: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
         }
@@ -121,9 +122,8 @@ export function startProxy(options: ProxyOptions) {
             try {
               saveStore(store, config);
             } catch (err) {
-              console.debug(
-                "[nim-rotator] Failed to save store after rate limit:",
-                err,
+              logDebug(
+                `[nim-rotator] Failed to save store after rate limit: ${err instanceof Error ? err.message : String(err)}`,
               );
             }
           }
