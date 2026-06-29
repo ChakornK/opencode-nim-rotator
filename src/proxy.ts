@@ -33,6 +33,10 @@ export function startProxy(options: ProxyOptions) {
       const url = new URL(req.url);
       const sessionID = req.headers.get("x-nim-rotator-session-id");
 
+      console.log(
+        `[nim-rotator] Proxy received request: ${req.method} ${url.pathname} sessionID=${sessionID ?? "none"}`,
+      );
+
       try {
         // Read and potentially modify the request body
         let bodyText: string | undefined;

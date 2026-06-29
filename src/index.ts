@@ -386,7 +386,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
       try {
         const source = chain[state.attemptIndex];
         const target = chain[nextIndex];
-        if (!source || !target) return false;
+        if (!source || !target) {
+          console.log(
+            `[nim-rotator] triggerRetry: source or target is undefined. sourceIndex=${state.attemptIndex}, nextIndex=${nextIndex}, chainLength=${chain.length}`,
+          );
+          return false;
+        }
 
         await showToast(
           "warning",
@@ -400,12 +405,20 @@ export const NvidiaNimKeyRotator: Plugin = async (
           messagesResult && "data" in messagesResult
             ? messagesResult.data
             : messagesResult;
-        if (!Array.isArray(entries)) return false;
+        if (!Array.isArray(entries)) {
+          console.log(
+            `[nim-rotator] triggerRetry: entries is not an array. type=${typeof entries}`,
+          );
+          return false;
+        }
 
         const userMessages = (entries as Array<Record<string, unknown>>).filter(
           (entry) => (entry?.info as Record<string, unknown>)?.role === "user",
         );
-        if (userMessages.length === 0) return false;
+        if (userMessages.length === 0) {
+          console.log(`[nim-rotator] triggerRetry: no user messages found`);
+          return false;
+        }
 
         const lastUser = userMessages[userMessages.length - 1] as Record<
           string,
@@ -418,6 +431,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
           state.lastUserMessageID &&
           (lastUserInfo?.id as string) !== state.lastUserMessageID
         ) {
+          console.log(
+            `[nim-rotator] triggerRetry: message ID mismatch. expected=${state.lastUserMessageID}, actual=${lastUserInfo?.id}`,
+          );
           return false;
         }
 
@@ -454,13 +470,16 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
         const idle = await waitForSessionIdle(sessionID);
         if (!idle) {
-          console.debug(
-            `[nim-rotator] session ${sessionID} did not go idle after abort`,
+          console.log(
+            `[nim-rotator] triggerRetry: session ${sessionID} did not go idle after abort`,
           );
           state.pendingRetryIndex = undefined;
           return false;
         }
 
+        console.log(
+          `[nim-rotator] triggerRetry: sending prompt with model ${target.id} for session ${sessionID}`,
+        );
         await client.session.prompt({
           path: { id: sessionID },
           body: {
@@ -474,11 +493,15 @@ export const NvidiaNimKeyRotator: Plugin = async (
           },
         });
 
+        console.log(
+          `[nim-rotator] triggerRetry: successfully triggered fallback for session ${sessionID}`,
+        );
         return true;
       } catch (err) {
         console.debug(
           `[nim-rotator] triggerRetry failed for ${sessionID}:`,
           err,
+          51,
         );
         state.pendingRetryIndex = undefined;
         return false;
@@ -500,6 +523,10 @@ export const NvidiaNimKeyRotator: Plugin = async (
     const error = props?.error;
     const sessionID = props?.sessionID as string | undefined;
 
+    console.log(
+      `[nim-rotator] handleSessionError called: sessionID=${sessionID ?? "none"}, is429=${is429Error(error)}, errorName=${(error as any)?.name ?? "unknown"}`,
+    );
+
     if (is429Error(error)) {
       reloadFromDisk();
       const stateForBlacklist = sessionID ? sessions.get(sessionID) : undefined;
@@ -512,10 +539,18 @@ export const NvidiaNimKeyRotator: Plugin = async (
       safeSaveStore();
     }
 
-    if (!sessionID) return;
+    if (!sessionID) {
+      console.log(`[nim-rotator] handleSessionError: no sessionID, returning`);
+      return;
+    }
 
     const state = sessions.get(sessionID);
-    if (!state) return;
+    if (!state) {
+      console.log(
+        `[nim-rotator] handleSessionError: no state for sessionID=${sessionID}, returning`,
+      );
+      return;
+    }
     if (state.aborting) {
       state.aborting = false;
       return;
@@ -538,6 +573,9 @@ export const NvidiaNimKeyRotator: Plugin = async (
     } else {
       state.rateLimitCount++;
     }
+    console.log(
+      `[nim-rotator] handleSessionError: rateLimitCount=${state.rateLimitCount}, threshold=${store.maxRateLimitFailures}`,
+    );
     if (state.rateLimitCount < store.maxRateLimitFailures) return;
 
     // Set cooldown for the current model before falling back
