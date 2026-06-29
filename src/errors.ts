@@ -117,10 +117,15 @@ export function describeError(
 
 export function shouldRetryForError(
   error: unknown,
-  state: SessionState,
+  _state: SessionState,
 ): boolean {
   if (!error || typeof error !== "object") return false;
   const rec = error as Record<string, unknown>;
+
+  // Always count 429 errors toward the threshold, even if Opencode considers
+  // them retryable. The plugin's model fallback is a different strategy from
+  // Opencode's simple retry, so we need to track 429s ourselves.
+  if (is429Error(error)) return true;
 
   // If Opencode already classifies this as retryable, let Opencode handle it
   if (rec.retryable === true) return false;

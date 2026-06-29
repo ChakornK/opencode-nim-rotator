@@ -1,4 +1,10 @@
-import type { KeyStore } from "./types.js";
+import type { KeyStore, KeyStoreConfig } from "./types.js";
+import {
+  getNextKey,
+  saveStore,
+  recordRateLimit,
+  recordModelRateLimit,
+} from "./storage.js";
 
 const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const PROXY_TIMEOUT_MS = 120_000; // 2 minutes
@@ -12,12 +18,13 @@ export interface ProxyOptions {
   port: number;
   store: KeyStore;
   sessions: Map<string, ProxyState>;
+  config?: KeyStoreConfig;
   targetUrl?: string;
   onRateLimit?: (sessionID: string, modelId: string) => void;
 }
 
 export function startProxy(options: ProxyOptions) {
-  const { store, sessions, onRateLimit } = options;
+  const { store, sessions, onRateLimit, config } = options;
   const targetBaseUrl = options.targetUrl ?? DEFAULT_NVIDIA_BASE_URL;
 
   const server = Bun.serve({
@@ -63,11 +70,26 @@ export function startProxy(options: ProxyOptions) {
 
         const upstream = `${targetBaseUrl}${upstreamPath}${url.search}`;
 
-        // Forward the request, preserving the Authorization header set by chat.headers
+        // Forward the request
         const headers = new Headers(req.headers);
         // Remove our custom header and host before forwarding
         headers.delete("x-nim-rotator-session-id");
         headers.delete("host");
+
+        // Handle API key rotation in the proxy
+        const modelIdForRotation = targetModel;
+        const next = getNextKey(store, config, modelIdForRotation);
+        if (next) {
+          headers.set("Authorization", `Bearer ${next.key.key}`);
+          try {
+            saveStore(store, config);
+          } catch (err) {
+            console.debug(
+              "[nim-rotator] Failed to save store after key rotation:",
+              err,
+            );
+          }
+        }
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
@@ -87,6 +109,20 @@ export function startProxy(options: ProxyOptions) {
         // Check for rate limit and notify
         if (response.status === 429 && sessionID && targetModel) {
           onRateLimit?.(sessionID, targetModel);
+          // Also record rate limit for the key that was just used
+          const errorKeyId = store.lastUsedKeyId;
+          if (errorKeyId) {
+            recordRateLimit(store, errorKeyId);
+            recordModelRateLimit(store, errorKeyId, targetModel);
+            try {
+              saveStore(store, config);
+            } catch (err) {
+              console.debug(
+                "[nim-rotator] Failed to save store after rate limit:",
+                err,
+              );
+            }
+          }
         }
 
         return response;

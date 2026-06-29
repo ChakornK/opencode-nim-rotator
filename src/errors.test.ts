@@ -105,13 +105,15 @@ describe("shouldRetryForError", () => {
     expect(shouldRetryForError(error, makeState())).toBe(false);
   });
 
-  it("lets Opencode handle error with retryable flag", () => {
+  it("always retries 429 errors even if Opencode marks them retryable", () => {
+    // 429 errors must always count toward the plugin's threshold so model
+    // fallback can trigger after repeated rate limits.
     const error = {
       name: "APIError",
       data: { statusCode: 429 },
       retryable: true,
     };
-    expect(shouldRetryForError(error, makeState())).toBe(false);
+    expect(shouldRetryForError(error, makeState())).toBe(true);
   });
 
   it("retries on APIError with retryable status code", () => {
