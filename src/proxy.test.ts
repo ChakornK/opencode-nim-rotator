@@ -208,3 +208,91 @@ describe("startProxy", () => {
     }
   });
 });
+
+describe("startProxy with API keys", () => {
+  it("should rotate API keys and set Authorization header", async () => {
+    const testServer = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        return new Response("{}", { status: 200 });
+      },
+    });
+
+    const store = getDefaultStore();
+    store.keys = [
+      {
+        id: "key-1",
+        name: "key1",
+        key: "nvapi-test-key-1",
+        createdAt: Date.now(),
+        rateLimitCount: 0,
+        enabled: true,
+      },
+      {
+        id: "key-2",
+        name: "key2",
+        key: "nvapi-test-key-2",
+        createdAt: Date.now(),
+        rateLimitCount: 0,
+        enabled: true,
+      },
+    ];
+
+    let receivedAuth: string | null = null;
+    const upstream = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        receivedAuth = req.headers.get("authorization");
+        return new Response("{}", { status: 200 });
+      },
+    });
+
+    const proxy = startProxy({
+      port: 0,
+      store,
+      sessions: new Map(),
+      targetUrl: `http://localhost:${upstream.port}`,
+    });
+
+    try {
+      const response = await fetch(
+        `http://localhost:${proxy.port}/v1/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "test-model",
+            messages: [{ role: "user", content: "hello" }],
+          }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      expect(receivedAuth!).toBe("Bearer nvapi-test-key-1");
+
+      // Second request should rotate to the next key
+      const response2 = await fetch(
+        `http://localhost:${proxy.port}/v1/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "test-model",
+            messages: [{ role: "user", content: "hello" }],
+          }),
+        },
+      );
+
+      expect(response2.status).toBe(200);
+      expect(receivedAuth!).toBe("Bearer nvapi-test-key-2");
+    } finally {
+      proxy.server.stop(true);
+      upstream.stop(true);
+      testServer.stop(true);
+    }
+  });
+});
