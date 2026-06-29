@@ -85,8 +85,15 @@ export function startProxy(options: ProxyOptions) {
         // Handle API key rotation in the proxy
         const modelIdForRotation = targetModel;
         const next = getNextKey(store, config, modelIdForRotation);
+        logDebug(
+          `[nim-rotator] Proxy key lookup: modelId=${modelIdForRotation ?? "none"}, found=${next !== null}, keyId=${next?.key.id ?? "none"}`,
+        );
         if (next) {
-          headers.set("Authorization", `Bearer ${next.key.key}`);
+          const authValue = `Bearer ${next.key.key}`;
+          headers.set("Authorization", authValue);
+          logDebug(
+            `[nim-rotator] Proxy set Authorization header: ${authValue.substring(0, 20)}...`,
+          );
           try {
             saveStore(store, config);
           } catch (err) {
@@ -94,6 +101,10 @@ export function startProxy(options: ProxyOptions) {
               `[nim-rotator] Failed to save store after key rotation: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
+        } else {
+          logDebug(
+            `[nim-rotator] Proxy: no active key found, not setting Authorization header`,
+          );
         }
 
         const controller = new AbortController();
