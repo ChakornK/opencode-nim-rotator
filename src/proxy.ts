@@ -29,6 +29,9 @@ export function startProxy(options: ProxyOptions) {
   const { store, sessions, onRateLimit, config } = options;
   const targetBaseUrl = options.targetUrl ?? DEFAULT_NVIDIA_BASE_URL;
 
+  // Track 429 counts per session to trigger fallback from proxy level
+  const session429Counts = new Map<string, number>();
+
   const server = Bun.serve({
     port: options.port,
     idleTimeout: 0,
@@ -139,6 +142,37 @@ export function startProxy(options: ProxyOptions) {
               );
             }
           }
+
+          // Track 429 count for this session and trigger fallback if needed
+          const currentCount = (session429Counts.get(sessionID) || 0) + 1;
+          session429Counts.set(sessionID, currentCount);
+          logDebug(
+            `[nim-rotator] Proxy 429 count for session ${sessionID}: ${currentCount}/${store.maxRateLimitFailures || 3}`,
+          );
+
+          if (currentCount >= (store.maxRateLimitFailures || 3)) {
+            // Find the next model in the fallback chain
+            const chain = store.fallbackChain;
+            const currentIndex = chain.findIndex((m) => m.id === targetModel);
+            logDebug(
+              `[nim-rotator] Proxy fallback check: targetModel=${targetModel}, chainIndex=${currentIndex}, chainLength=${chain.length}`,
+            );
+            if (currentIndex >= 0 && currentIndex < chain.length - 1) {
+              const nextModel = chain[currentIndex + 1];
+              const proxyState = sessions.get(sessionID) || {
+                activeChainModelId: undefined,
+                currentModelId: undefined,
+              };
+              proxyState.activeChainModelId = nextModel.id;
+              sessions.set(sessionID, proxyState);
+              logDebug(
+                `[nimQr-rotator] Proxy triggered fallback: ${targetModel} -> ${nextModel.id}`,
+              );
+            }
+          }
+        } else if (sessionID) {
+          // Reset 429 count on successful/non-429 response
+          session429Counts.delete(sessionID);
         }
 
         return response;
