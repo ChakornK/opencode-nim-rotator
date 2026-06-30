@@ -240,7 +240,15 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const safeSaveStore = () => {
     try {
-      saveStore(store, config);
+      const fresh = loadStore(config);
+      if (fresh) {
+        // Merge proxy-managed fields into the fresh store
+        fresh.currentIndex = store.currentIndex;
+        fresh.lastUsedKeyId = store.lastUsedKeyId;
+        saveStore(fresh, config);
+      } else {
+        saveStore(store, config);
+      }
     } catch (err) {
       console.error("[nim-rotator] Failed to save store:", err);
     }

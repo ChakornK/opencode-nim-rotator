@@ -2,6 +2,7 @@ import type { KeyStore, KeyStoreConfig } from "./types.js";
 import {
   getNextKey,
   saveStore,
+  loadStore,
   recordRateLimit,
   recordModelRateLimit,
 } from "./storage.js";
@@ -31,6 +32,28 @@ export function startProxy(options: ProxyOptions) {
 
   // Track 429 counts per session to trigger fallback from proxy level
   const session429Counts = new Map<string, number>();
+
+  // Helper to reload store from disk before saving, to avoid overwriting
+  // changes made by other processes (e.g., the TUI).
+  function safeSaveStore() {
+    try {
+      const fresh = loadStore(config);
+      if (fresh) {
+        // Copy proxy-managed fields into the fresh store
+        fresh.currentIndex = store.currentIndex;
+        fresh.lastUsedKeyId = store.lastUsedKeyId;
+        // keys may have been updated by TUI, so don't copy them
+        // fallbackChain may have been updated by TUI, so don't copy it
+        saveStore(fresh, config);
+      } else {
+        saveStore(store, config);
+      }
+    } catch (err) {
+      logDebug(
+        `[nim-rotator] safeSaveStore failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   const server = Bun.serve({
     port: options.port,
@@ -99,7 +122,7 @@ export function startProxy(options: ProxyOptions) {
             `[nim-rotator] Proxy set Authorization header: ${authValue.substring(0, 20)}...`,
           );
           try {
-            saveStore(store, config);
+            safeSaveStore();
           } catch (err) {
             logDebug(
               `[nim-rotator] Failed to save store after key rotation: ${err instanceof Error ? err.message : String(err)}`,
@@ -135,7 +158,7 @@ export function startProxy(options: ProxyOptions) {
             recordRateLimit(store, errorKeyId);
             recordModelRateLimit(store, errorKeyId, targetModel);
             try {
-              saveStore(store, config);
+              safeSaveStore();
             } catch (err) {
               logDebug(
                 `[nim-rotator] Failed to save store after rate limit: ${err instanceof Error ? err.message : String(err)}`,
