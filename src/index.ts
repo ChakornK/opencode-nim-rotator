@@ -546,13 +546,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       return;
     }
 
-    const state = sessions.get(sessionID);
-    if (!state) {
-      logDebug(
-        `[nim-rotator] handleSessionError: no state for sessionID=${sessionID}, returning`,
-      );
-      return;
-    }
+    const state = getState(sessionID);
     if (state.aborting) {
       state.aborting = false;
       return;
@@ -649,8 +643,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       return;
     }
 
-    const state = sessions.get(sessionID);
-    if (!state) return;
+    const state = getState(sessionID);
     if (state.inRetry) return;
 
     const now = Date.now();
@@ -799,6 +792,11 @@ export const NvidiaNimKeyRotator: Plugin = async (
       state.activeChainModelId = target.id;
       state.attemptIndex = desiredIndex;
       state.lastUserMessageID = output.message.id;
+
+      proxySessions.set(sessionID, {
+        activeChainModelId: target.id,
+        currentModelId: state.currentModelId,
+      });
     },
     "shell.env": async (_input, _output) => {
       // API key rotation is now handled entirely by the proxy
@@ -828,8 +826,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
         }
 
         if (statusType === "idle" && sessionID) {
-          const state = sessions.get(sessionID);
-          if (!state) return;
+          const state = getState(sessionID);
           if (state.inRetry) return;
           state.rateLimitCount = 0;
           state.pendingRetryIndex = undefined;
