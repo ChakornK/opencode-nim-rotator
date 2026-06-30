@@ -16,6 +16,7 @@ import type {
   KeyStoreConfig,
   ModelBlacklistEntry,
 } from "./types.js";
+import { logDebug } from "./logger.js";
 
 const DEFAULT_STORE_PATH = join(
   homedir(),
@@ -122,6 +123,9 @@ export function loadStore(config?: KeyStoreConfig): KeyStore | null {
             : getDefaultStore().maxRateLimitFailures,
       };
       pruneAllExpiredBlacklists(built);
+      logDebug(
+        `[nim-rotator] loadStore: loaded from ${storePath}, fallbackChain.length=${built.fallbackChain.length}, keys.length=${built.keys.length}`,
+      );
       return built;
     }
   } catch (err) {
@@ -141,10 +145,14 @@ export function saveStore(store: KeyStore, config?: KeyStoreConfig): void {
 
   const tmpPath = storePath + ".tmp." + crypto.randomUUID();
   try {
+    logDebug(
+      `[nim-rotator] saveStore: saving to ${storePath}, fallbackChain.length=${store.fallbackChain.length}, keys.length=${store.keys.length}`,
+    );
     writeFileSync(tmpPath, JSON.stringify(store, null, 2) + "\n", {
       mode: 0o600,
     });
     renameSync(tmpPath, storePath);
+    logDebug(`[nim-rotator] saveStore: saved successfully`);
   } catch (err) {
     try {
       unlinkSync(tmpPath);

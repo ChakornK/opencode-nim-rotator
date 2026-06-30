@@ -1,4 +1,5 @@
 import { getActiveTheme, setPreviewTheme } from "../themes.js";
+import { logDebug } from "../logger.js";
 import {
   exportKeys,
   applyImport,
@@ -271,6 +272,9 @@ export async function fetchNimModels(): Promise<void> {
 
 export function addFallbackModel(id: string, name: string): void {
   const chain = state.store.fallbackChain;
+  logDebug(
+    `[nim-rotator-tui] addFallbackModel called: id=${id}, name=${name}, currentChainLength=${chain.length}`,
+  );
 
   // Prevent duplicates (by id, not name, since upstream may have duplicate display names)
   if (chain.some((m) => m.id === id)) {
@@ -295,9 +299,16 @@ export function addFallbackModel(id: string, name: string): void {
     benchmarkStatus: "idle",
   });
 
+  logDebug(
+    `[nim-rotator-tui] addFallbackModel: added model, newChainLength=${chain.length}`,
+  );
+
   safeSaveStore();
   refreshStore();
   state.fallbackChainIndex = insertIndex;
+  logDebug(
+    `[nim-rotator-tui] addFallbackModel: done, finalChainLength=${state.store.fallbackChain.length}`,
+  );
 }
 
 // ---------------------------------------------------------------------------

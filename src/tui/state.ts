@@ -2,6 +2,7 @@ import type { KeyStore } from "../types.js";
 import type { ImportResult } from "../storage.js";
 import { loadStore, getDefaultStore, saveStore } from "../storage.js";
 import { getActiveTheme } from "../themes.js";
+import { logDebug } from "../logger.js";
 import type { Screen } from "./types.js";
 import type { CliRenderer } from "@opentui/core";
 
@@ -85,9 +86,15 @@ export function callRenderApp(): void {
 }
 
 export function refreshStore(): void {
+  logDebug(`[nim-rotator-tui] refreshStore: reloading from disk`);
   const fresh = loadStore();
   if (fresh !== null) {
     state.store = fresh;
+    logDebug(
+      `[nim-rotator-tui] refreshStore: loaded store with fallbackChain.length=${state.store.fallbackChain.length}`,
+    );
+  } else {
+    logDebug(`[nim-rotator-tui] refreshStore: loadStore returned null`);
   }
 }
 
@@ -98,7 +105,11 @@ export function setStatus(msg: string, color?: string): void {
 
 export function safeSaveStore(): boolean {
   try {
+    logDebug(
+      `[nim-rotator-tui] safeSaveStore: saving store with fallbackChain.length=${state.store.fallbackChain.length}`,
+    );
     saveStore(state.store);
+    logDebug(`[nim-rotator-tui] safeSaveStore: saved successfully`);
     return true;
   } catch (err) {
     console.error("[nim-rotator] Save failed:", err);
