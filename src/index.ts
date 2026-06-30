@@ -23,6 +23,10 @@ const VALID_STRATEGIES = ["round-robin", "least-failures"] as const;
 
 import { logDebug } from "./logger.js";
 
+function dumpSessionState(state: SessionState, label: string) {
+  return `[${label}] attemptIndex=${state.attemptIndex}, inRetry=${state.inRetry}, aborting=${state.aborting}, pendingRetryIndex=${state.pendingRetryIndex ?? "null"}, activeChainModelId=${state.activeChainModelId ?? "null"}, rateLimitCount=${state.rateLimitCount}, currentModelId=${state.currentModelId ?? "null"}, lastFailedModelId=${state.lastFailedModelId ?? "null"}, lastErrorHandledAt=${state.lastErrorHandledAt}`;
+}
+
 function isValidStrategy(
   val: unknown,
 ): val is KeyStoreConfig["rotationStrategy"] {
@@ -272,7 +276,12 @@ export const NvidiaNimKeyRotator: Plugin = async (
 
   const getState = (sessionID: string): SessionState => {
     const existing = sessions.get(sessionID);
-    if (existing) return existing;
+    if (existing) {
+      logDebug(
+        `[nim-rotator] getState: reusing existing session for ${sessionID}`,
+      );
+      return existing;
+    }
     if (sessions.size >= SESSIONS_MAX_SIZE) {
       const now = Date.now();
       let oldestId: string | undefined;
@@ -306,6 +315,7 @@ export const NvidiaNimKeyRotator: Plugin = async (
       retryAttempt: 0,
     };
     sessions.set(sessionID, next);
+    logDebug(`[nim-rotator] getState: CREATED new session for ${sessionID}`);
     return next;
   };
 

@@ -31,6 +31,7 @@ export function startProxy(options: ProxyOptions) {
 
   const server = Bun.serve({
     port: options.port,
+    idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
       const sessionID = req.headers.get("x-nim-rotator-session-id");
