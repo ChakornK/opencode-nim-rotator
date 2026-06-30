@@ -3,6 +3,8 @@ import { startProxy } from "./proxy.js";
 import type { ProxyState } from "./proxy.js";
 import type { KeyStore } from "./types.js";
 import { getDefaultStore } from "./storage.js";
+import { tmpdir } from "os";
+import { join } from "path";
 
 describe("startProxy", () => {
   let proxy: ReturnType<typeof startProxy>;
@@ -17,6 +19,12 @@ describe("startProxy", () => {
   let nextResponseStatus: number = 200;
 
   beforeAll(() => {
+    // Use a temp file for the store to avoid overwriting the real store
+    process.env.NIM_ROTATOR_STORE_PATH = join(
+      tmpdir(),
+      `nim-rotator-test-${Date.now()}.json`,
+    );
+
     sessions = new Map();
     rateLimitCalls = [];
     lastRequest = undefined;
@@ -211,6 +219,12 @@ describe("startProxy", () => {
 
 describe("startProxy with API keys", () => {
   it("should rotate API keys and set Authorization header", async () => {
+    // Use a temp file for the store to avoid overwriting the real store
+    process.env.NIM_ROTATOR_STORE_PATH = join(
+      tmpdir(),
+      `nim-rotator-test-${Date.now()}.json`,
+    );
+
     const testServer = Bun.serve({
       port: 0,
       async fetch(req) {
